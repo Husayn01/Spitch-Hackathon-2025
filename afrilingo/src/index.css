@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Gentium+Plus:ital,wght@0,400;0,700;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Support for Nigerian language characters */
+  body {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  
+  /* Custom selection color */
+  ::selection {
+    background-color: #008751;
+    color: white;
+  }
+}
+
+@layer components {
+  /* Nigerian button style */
+  .btn-nigeria {
+    @apply px-6 py-3 bg-nigeria-green text-white font-semibold rounded-lg 
+           hover:bg-green-700 active:bg-green-800 transition-colors
+           focus:outline-none focus:ring-4 focus:ring-green-500/30;
+  }
+  
+  /* Cultural card style */
+  .cultural-card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100
+           hover:shadow-md transition-shadow p-6
+           relative overflow-hidden;
+  }
+  
+  .cultural-card::before {
+    content: '';
+    @apply absolute top-0 right-0 w-32 h-32 -mr-16 -mt-16
+           bg-ankara-pattern opacity-5;
+  }
+}
+
+@layer utilities {
+  /* Text with diacritical marks */
+  .text-yoruba {
+    @apply font-nigerian tracking-wide;
+  }
+  
+  /* Offline indicator */
+  .offline-indicator::after {
+    content: '🔌';
+    @apply ml-2 opacity-60;
+  }
+}
