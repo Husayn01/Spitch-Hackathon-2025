@@ -1,167 +1,190 @@
 import { useState } from 'react';
 import { geminiService } from '../../services/gemini.service';
-import { ChevronRightIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
-import toast from 'react-hot-toast';
+import { Icon } from '../../utils/icons';
+import { showToast } from '../../utils/toast';
+import { Send, Loader2 } from 'lucide-react';
 
 interface CulturalAssistantProps {
   language: string;
+  context?: string;
 }
 
-export const CulturalAssistant = ({ language }: CulturalAssistantProps) => {
-  const [question, setQuestion] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [explanation, setExplanation] = useState<any>(null);
-  const [isExpanded, setIsExpanded] = useState(true);
-  
-  const commonQuestions = [
-    'How do I greet an elder respectfully?',
-    'What should I know about Nigerian naming ceremonies?',
-    'How do traditional Nigerian weddings work?',
-    'What are important festival greetings?'
-  ];
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+}
 
-  const askQuestion = async (q?: string) => {
-    const queryText = q || question;
-    if (!queryText.trim()) return;
-    
+export const CulturalAssistant = ({ 
+  language,
+  context 
+}: CulturalAssistantProps) => {
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      role: 'assistant',
+      content: `Ẹ káàbọ̀! Welcome! I am your cultural guide for ${language} language and Nigerian culture. Ask me about greetings, customs, proverbs, or any cultural context you'd like to understand better.`,
+      timestamp: new Date()
+    }
+  ]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+
+    const userMessage: Message = {
+      role: 'user',
+      content: input,
+      timestamp: new Date()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
     setIsLoading(true);
+
     try {
-      const result = await geminiService.explainCulturalContext(
-        queryText,
-        language === 'yo' ? 'Yoruba' : 
-        language === 'ig' ? 'Igbo' : 
-        language === 'ha' ? 'Hausa' : 'Nigerian culture',
-        'General cultural question'
+      const explanation = await geminiService.explainCulturalContext(
+        input,
+        language,
+        context
       );
-      
-      setExplanation(result);
-      if (q) setQuestion(q);
+
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: formatCulturalResponse(explanation),
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
-      toast.error('Failed to get explanation');
+      showToast.error('Failed to get response. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
+  const formatCulturalResponse = (explanation: any): string => {
+    let response = explanation.explanation || '';
+    
+    if (explanation.examples?.length > 0) {
+      response += '\n\n**Examples:**\n';
+      explanation.examples.forEach((example: string, idx: number) => {
+        response += `${idx + 1}. ${example}\n`;
+      });
+    }
+
+    if (explanation.culturalNotes?.length > 0) {
+      response += '\n\n**Cultural Notes:**\n';
+      explanation.culturalNotes.forEach((note: string) => {
+        response += `• ${note}\n`;
+      });
+    }
+
+    if (explanation.relatedPhrases?.length > 0) {
+      response += '\n\n**Related Phrases:**\n';
+      explanation.relatedPhrases.forEach((phrase: string) => {
+        response += `• ${phrase}\n`;
+      });
+    }
+
+    return response;
+  };
+
+  const suggestedQuestions = [
+    "What's the proper way to greet elders?",
+    "Explain the significance of kola nuts",
+    "What are common Nigerian proverbs?",
+    "How do naming ceremonies work?"
+  ];
+
   return (
     <div className="cultural-card">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between mb-4"
-      >
+      <div className="flex items-center gap-2 mb-4">
+        <Icon icon="info" size="medium" className="text-nigeria-green" />
         <h3 className="text-lg font-semibold text-gray-900">
-          🧑‍🏫 Ask the Cultural Elder
+          Cultural Assistant
         </h3>
-        {isExpanded ? (
-          <ChevronDownIcon className="w-5 h-5 text-gray-500" />
-        ) : (
-          <ChevronRightIcon className="w-5 h-5 text-gray-500" />
-        )}
-      </button>
+      </div>
 
-      {isExpanded && (
-        <div className="space-y-4">
-          {/* Question Input */}
-          <div>
-            <textarea
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder="Ask about Nigerian culture, traditions, or proper etiquette..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg
-                       focus:outline-none focus:ring-2 focus:ring-nigeria-green
-                       resize-none text-sm"
-              rows={2}
-            />
-            <button
-              onClick={() => askQuestion()}
-              disabled={!question.trim() || isLoading}
-              className="mt-2 px-4 py-2 bg-nigeria-green text-white rounded-lg
-                       hover:bg-green-700 transition-colors text-sm
-                       disabled:opacity-50 disabled:cursor-not-allowed"
+      {/* Messages */}
+      <div className="space-y-4 mb-4 max-h-96 overflow-y-auto">
+        {messages.map((message, idx) => (
+          <div
+            key={idx}
+            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`max-w-[80%] rounded-lg p-3 ${
+                message.role === 'user'
+                  ? 'bg-nigeria-green text-white'
+                  : 'bg-gray-100 text-gray-800'
+              }`}
             >
-              {isLoading ? 'Thinking...' : 'Ask Elder'}
-            </button>
-          </div>
-
-          {/* Common Questions */}
-          <div>
-            <p className="text-xs text-gray-500 mb-2">Common questions:</p>
-            <div className="flex flex-wrap gap-2">
-              {commonQuestions.map((q, index) => (
-                <button
-                  key={index}
-                  onClick={() => askQuestion(q)}
-                  className="text-xs px-3 py-1 bg-gray-100 text-gray-700
-                           rounded-full hover:bg-gray-200 transition-colors"
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Explanation Display */}
-          {explanation && (
-            <div className="border-t pt-4 space-y-3">
-              {/* Main Explanation */}
-              <div>
-                <h4 className="font-medium text-gray-900 mb-2">Understanding:</h4>
-                <p className="text-sm text-gray-700">{explanation.explanation}</p>
+              {message.role === 'assistant' && (
+                <div className="flex items-center gap-2 mb-1">
+                  <Icon icon="info" size="small" className="text-nigeria-green" />
+                  <span className="text-sm font-medium">Cultural Guide</span>
+                </div>
+              )}
+              <div className="whitespace-pre-line">{message.content}</div>
+              <div className="text-xs opacity-70 mt-1">
+                {message.timestamp.toLocaleTimeString()}
               </div>
-
-              {/* Examples */}
-              {explanation.examples.length > 0 && (
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-2">Examples:</h4>
-                  <ul className="space-y-1">
-                    {explanation.examples.map((example: string, index: number) => (
-                      <li key={index} className="text-sm text-gray-700 
-                                               flex items-start gap-2">
-                        <span className="text-nigeria-green">•</span>
-                        <span>{example}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Related Phrases */}
-              {explanation.relatedPhrases && explanation.relatedPhrases.length > 0 && (
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-2">
-                    Related Phrases to Learn:
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {explanation.relatedPhrases.map((phrase: string, index: number) => (
-                      <span key={index} 
-                            className="text-sm px-3 py-1 bg-cowrie-shell/30 
-                                     text-gray-700 rounded-full font-nigerian">
-                        {phrase}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Cultural Notes */}
-              {explanation.culturalNotes && explanation.culturalNotes.length > 0 && (
-                <div className="bg-amber-50 rounded-lg p-3">
-                  <h4 className="font-medium text-amber-900 mb-1 text-sm">
-                    ⚠️ Important Cultural Notes:
-                  </h4>
-                  <ul className="space-y-1">
-                    {explanation.culturalNotes.map((note: string, index: number) => (
-                      <li key={index} className="text-sm text-amber-800">
-                        {note}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </div>
-          )}
+          </div>
+        ))}
+        
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="bg-gray-100 rounded-lg p-3 flex items-center gap-2">
+              <Loader2 size={16} className="animate-spin" />
+              <span className="text-gray-600">Thinking...</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Suggested Questions */}
+      {messages.length === 1 && (
+        <div className="mb-4">
+          <p className="text-sm text-gray-600 mb-2">Try asking:</p>
+          <div className="flex flex-wrap gap-2">
+            {suggestedQuestions.map((question, idx) => (
+              <button
+                key={idx}
+                onClick={() => setInput(question)}
+                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 
+                         px-3 py-1 rounded-full transition-colors"
+              >
+                {question}
+              </button>
+            ))}
+          </div>
         </div>
       )}
+
+      {/* Input Form */}
+      <form onSubmit={handleSubmit} className="flex gap-2">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Ask about Nigerian culture..."
+          disabled={isLoading}
+          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg
+                   focus:outline-none focus:ring-2 focus:ring-nigeria-green
+                   disabled:opacity-50"
+        />
+        <button
+          type="submit"
+          disabled={!input.trim() || isLoading}
+          className="btn-nigeria px-4 py-2 disabled:opacity-50 
+                   flex items-center gap-2"
+        >
+          <Send size={18} />
+        </button>
+      </form>
     </div>
   );
 };

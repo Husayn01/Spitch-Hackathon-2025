@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
+import { Icon } from './utils/icons';
 
 // Lazy load pages for better performance
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -12,7 +13,7 @@ const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-50">
     <div className="text-center">
       <div className="inline-flex items-center space-x-2">
-        <div className="w-8 h-8 border-4 border-nigeria-green border-t-transparent rounded-full animate-spin"></div>
+        <Icon icon="loading" size="large" className="animate-spin text-nigeria-green" />
         <span className="text-lg font-medium text-gray-700">E duro...</span>
         <span className="text-sm text-gray-500">(Loading...)</span>
       </div>

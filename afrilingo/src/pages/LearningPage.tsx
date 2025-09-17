@@ -6,7 +6,8 @@ import { CulturalAssistant } from '../components/learning/CulturalAssistant';
 import { InteractiveStory } from '../components/cultural/InteractiveStory';
 import { UserStats } from '../components/gamification/UserStats';
 import { useGameStore } from '../stores/gameStore';
-import toast from 'react-hot-toast';
+import { Icon } from '../utils/icons';
+import { showToast } from '../utils/toast';
 
 // Learning modes
 type LearningMode = 'pronunciation' | 'conversation' | 'story' | 'culture';
@@ -18,7 +19,7 @@ const SAMPLE_LESSONS = {
       phrases: [
         { text: 'Ẹ káàárọ̀', translation: 'Good morning', context: 'Used before noon' },
         { text: 'Ẹ káàsán', translation: 'Good afternoon', context: 'Used from noon to 4pm' },
-        { text: 'Ẹ kúurọ̀lẹ́', translation: 'Good evening', context: 'Used after 4pm' },
+        { text: 'Ẹ kúùrọ̀lẹ́', translation: 'Good evening', context: 'Used after 4pm' },
         { text: 'Báwo ni?', translation: 'How are you?', context: 'Informal greeting' },
       ]
     }
@@ -49,98 +50,106 @@ const LearningPage = () => {
 
     if (currentPhraseIndex < lesson.phrases.length - 1) {
       setCurrentPhraseIndex(currentPhraseIndex + 1);
-      toast.success('Great! Moving to next phrase.');
+      showToast.success('Great! Moving to next phrase.');
     } else {
-      toast.success('🎉 Lesson completed!');
-      await addCowries(5);
+      showToast.celebration('Lesson completed! Well done!');
+      await addXP(20); // Bonus XP for completion
     }
   };
 
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Learn {language.charAt(0).toUpperCase() + language.slice(1)}
-          </h1>
-          
-          {/* Learning Mode Tabs */}
-          <div className="flex flex-wrap gap-2 mt-4">
-            {[
-              { mode: 'pronunciation', label: '🎤 Pronunciation', desc: 'Practice speaking' },
-              { mode: 'conversation', label: '💬 Conversation', desc: 'Real-life dialogues' },
-              { mode: 'story', label: '📖 Stories', desc: 'Cultural tales' },
-              { mode: 'culture', label: '🎭 Culture', desc: 'Ask questions' },
-            ].map(({ mode, label, desc }) => (
-              <button
-                key={mode}
-                onClick={() => setLearningMode(mode as LearningMode)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors
-                  ${learningMode === mode
-                    ? 'bg-nigeria-green text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-              >
-                <span className="block">{label}</span>
-                <span className="text-xs opacity-80">{desc}</span>
-              </button>
-            ))}
-          </div>
+  if (!lesson) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600">Lesson content coming soon!</p>
         </div>
+      </div>
+    );
+  }
 
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* Main Learning Area */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Pronunciation Mode */}
-            {learningMode === 'pronunciation' && lesson && currentPhrase && (
-              <>
-                <div className="cultural-card">
-                  <div className="text-center mb-6">
-                    <h2 className="text-3xl font-nigerian text-gray-900 mb-2">
-                      {currentPhrase.text}
-                    </h2>
-                    <p className="text-xl text-gray-700">{currentPhrase.translation}</p>
-                    <p className="text-sm text-gray-500 mt-2">{currentPhrase.context}</p>
-                  </div>
-                </div>
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-8">
+        <div className="grid lg:grid-cols-4 gap-8">
+          {/* Main Content */}
+          <div className="lg:col-span-3 space-y-6">
+            {/* Lesson Header */}
+            <div className="cultural-card">
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                {lesson.title}
+              </h1>
+              <p className="text-gray-600">
+                Practice your {language} pronunciation and conversation skills
+              </p>
+            </div>
 
+            {/* Mode Selector */}
+            <div className="flex gap-4 flex-wrap">
+              {[
+                { mode: 'pronunciation', label: 'Pronunciation', icon: 'pronunciation' },
+                { mode: 'conversation', label: 'Conversation', icon: 'conversation' },
+                { mode: 'story', label: 'Stories', icon: 'story' },
+                { mode: 'culture', label: 'Culture', icon: 'info' }
+              ].map(({ mode, label, icon }) => (
+                <button
+                  key={mode}
+                  onClick={() => setLearningMode(mode as LearningMode)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors
+                            flex items-center gap-2
+                            ${learningMode === mode 
+                              ? 'bg-nigeria-green text-white' 
+                              : 'bg-white text-gray-700 hover:bg-gray-100'}`}
+                >
+                  <Icon icon={icon as keyof typeof import('../utils/icons').Icons} size="small" />
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Learning Content */}
+            {learningMode === 'pronunciation' && currentPhrase && (
+              <div className="cultural-card">
+                <h2 className="text-xl font-bold mb-4">
+                  Practice: "{currentPhrase.text}"
+                </h2>
+                <p className="text-gray-600 mb-2">
+                  Translation: {currentPhrase.translation}
+                </p>
+                <p className="text-sm text-gray-500 mb-4">
+                  {currentPhrase.context}
+                </p>
+                
                 <PronunciationPractice
                   text={currentPhrase.text}
-                  language={languageCode as any}
+                  language={languageCode as 'yo' | 'ig' | 'ha' | 'en'}
                   onComplete={handlePronunciationComplete}
                 />
-              </>
+              </div>
             )}
 
-            {/* Conversation Mode */}
             {learningMode === 'conversation' && (
-              <ConversationPractice
-                language={languageCode as any}
-                topic="Market Shopping"
+              <ConversationPractice 
+                language={languageCode as 'yo' | 'ig' | 'ha'}
                 level="beginner"
               />
             )}
 
-            {/* Story Mode */}
             {learningMode === 'story' && (
-              <InteractiveStory
-                language={languageCode as any}
+              <InteractiveStory 
+                language={languageCode as 'yo' | 'ig' | 'ha'}
                 level="beginner"
-                theme="Traditional Wisdom"
               />
             )}
 
-            {/* Culture Mode */}
             {learningMode === 'culture' && (
-              <div className="space-y-6">
-                <div className="cultural-card">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-4">
-                    Nigerian Cultural Guide
+              <div className="cultural-card">
+                <div className="text-center py-8">
+                  <Icon icon="info" size="xlarge" className="text-nigeria-green mx-auto mb-4" />
+                  <h2 className="text-xl font-bold mb-2">
+                    Cultural Context
                   </h2>
-                  <p className="text-gray-700 mb-6">
-                    Ask any question about Nigerian culture, traditions, etiquette, 
-                    or language usage. Our AI elder is here to help you understand 
+                  <p className="text-gray-600 max-w-2xl mx-auto">
+                    Our AI elder is here to help you understand 
                     the rich cultural context behind the language.
                   </p>
                 </div>
@@ -156,8 +165,9 @@ const LearningPage = () => {
             
             {/* Quick Tips based on mode */}
             <div className="cultural-card">
-              <h3 className="font-semibold text-gray-900 mb-3">
-                💡 Learning Tips
+              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <Icon icon="tip" size="small" className="text-yellow-500" />
+                Learning Tips
               </h3>
               
               {learningMode === 'pronunciation' && (
@@ -184,13 +194,10 @@ const LearningPage = () => {
               {learningMode === 'culture' && (
                 <p className="text-sm text-gray-600">
                   Understanding culture is key to mastering any language. 
-                  Don't be shy - ask about anything you're curious about!
+                  Don't be shy - ask about anything you're curious about.
                 </p>
               )}
             </div>
-
-            {/* Cultural Assistant (always visible) */}
-            <CulturalAssistant language={language} />
           </div>
         </div>
       </div>

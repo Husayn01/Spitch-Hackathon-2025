@@ -46,9 +46,8 @@
     @apply font-nigerian tracking-wide;
   }
   
-  /* Offline indicator */
-  .offline-indicator::after {
-    content: '🔌';
-    @apply ml-2 opacity-60;
+  /* Offline indicator - now uses a class that can be styled with an icon */
+  .offline-indicator {
+    @apply relative;
   }
 }

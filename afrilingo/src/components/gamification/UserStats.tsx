@@ -1,5 +1,6 @@
 import { useGameStore } from '../../stores/gameStore';
 import { ProgressBar } from './ProgressBar';
+import { Icon } from '../../utils/icons';
 
 export const UserStats = () => {
   const { xp, level, cowrieShells, streakDays } = useGameStore();
@@ -30,13 +31,17 @@ export const UserStats = () => {
         {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-4 mt-6">
           <div className="cultural-card p-4 text-center">
-            <div className="text-3xl mb-1">🐚</div>
+            <div className="mb-2">
+              <Icon icon="cowrieShell" size="xlarge" className="text-nigeria-green mx-auto" />
+            </div>
             <div className="text-2xl font-bold text-gray-900">{cowrieShells}</div>
             <div className="text-sm text-gray-600">Cowrie Shells</div>
           </div>
           
           <div className="cultural-card p-4 text-center">
-            <div className="text-3xl mb-1">🔥</div>
+            <div className="mb-2">
+              <Icon icon="streak" size="xlarge" className="text-orange-500 mx-auto" />
+            </div>
             <div className="text-2xl font-bold text-gray-900">{streakDays}</div>
             <div className="text-sm text-gray-600">Day Streak</div>
           </div>

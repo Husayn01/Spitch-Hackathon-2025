@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
-import toast from 'react-hot-toast';
+import { showToast } from '../utils/toast';
 
 interface GameState {
   xp: number;
@@ -40,7 +40,7 @@ export const useGameStore = create<GameState>()(
 
         // Check for level up
         if (newLevel > get().level) {
-          toast.success(`🎉 Level Up! You're now level ${newLevel}!`);
+          showToast.levelUp(`Level Up! You're now level ${newLevel}!`);
           await get().addCowries(10); // Bonus cowries for leveling up
         }
 
@@ -54,7 +54,7 @@ export const useGameStore = create<GameState>()(
         }));
         
         if (amount > 0) {
-          toast.success(`+${amount} 🐚 Cowrie Shells!`);
+          showToast.success(`+${amount} Cowrie Shells earned!`);
         }
         
         await get().syncWithDatabase();
@@ -80,7 +80,7 @@ export const useGameStore = create<GameState>()(
             const streak = get().streakDays;
             if (streak % 7 === 0) {
               await get().addCowries(5);
-              toast.success(`🔥 ${streak} day streak! Bonus cowries earned!`);
+              showToast.streak(`${streak} day streak! Bonus cowries earned!`);
             }
           } else {
             // Reset streak
@@ -101,14 +101,20 @@ export const useGameStore = create<GameState>()(
         // Check various achievements
         if (state.xp >= 100 && !state.achievements.includes('first_100_xp')) {
           newAchievements.push('first_100_xp');
-          toast.success('🏆 Achievement: First 100 XP!');
+          showToast.achievement('Achievement Unlocked: First 100 XP!');
           await get().addCowries(20);
         }
 
         if (state.streakDays >= 7 && !state.achievements.includes('week_streak')) {
           newAchievements.push('week_streak');
-          toast.success('🏆 Achievement: 7 Day Streak!');
+          showToast.achievement('Achievement Unlocked: 7 Day Streak!');
           await get().addCowries(30);
+        }
+
+        if (state.level >= 5 && !state.achievements.includes('level_5')) {
+          newAchievements.push('level_5');
+          showToast.achievement('Achievement Unlocked: Reached Level 5!');
+          await get().addCowries(50);
         }
 
         if (newAchievements.length > 0) {

@@ -19,16 +19,18 @@ serve(async (req) => {
       throw new Error('SPITCH_API_KEY not configured')
     }
     
-    // Correct API domain
+    // Use the API URL - might need to be updated based on actual working domain
     const SPITCH_API_URL = 'https://api.spi-tch.com'
     
     console.log(`Proxying request to: ${SPITCH_API_URL}${endpoint}`)
     
-    // Handle transcription endpoint (multipart/form-data)
-    if (endpoint === '/v1/transcriptions') {
+    // Handle different endpoint types based on content type
+    const contentType = req.headers.get('content-type')
+    
+    if (contentType?.includes('multipart/form-data')) {
+      // Handle multipart requests (transcriptions)
       const formData = await req.formData()
       
-      // Forward the form data
       const response = await fetch(`${SPITCH_API_URL}${endpoint}`, {
         method: 'POST',
         headers: {
@@ -37,15 +39,25 @@ serve(async (req) => {
         body: formData,
       })
       
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Spitch API error:', response.status, errorText)
+        return new Response(JSON.stringify({ 
+          error: `API Error: ${response.status}`,
+          message: errorText 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: response.status,
+        })
+      }
+      
       const data = await response.json()
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: response.status,
       })
-    }
-    
-    // Handle speech synthesis endpoint
-    if (endpoint === '/v1/speech') {
+    } else {
+      // Handle JSON requests
       const body = await req.json()
       
       const response = await fetch(`${SPITCH_API_URL}${endpoint}`, {
@@ -57,44 +69,42 @@ serve(async (req) => {
         body: JSON.stringify(body),
       })
       
-      // Speech endpoint returns audio/wav
-      if (response.headers.get('content-type')?.includes('audio')) {
+      console.log('Response status:', response.status)
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
+      
+      // Check content type of response
+      const responseContentType = response.headers.get('content-type')
+      
+      if (responseContentType?.includes('audio')) {
+        // Handle audio response
         const audioData = await response.arrayBuffer()
         return new Response(audioData, {
           headers: { 
             ...corsHeaders, 
-            'Content-Type': 'audio/wav',
+            'Content-Type': responseContentType,
           },
           status: response.status,
         })
+      } else {
+        // Handle JSON/text response
+        const responseText = await response.text()
+        
+        // Try to parse as JSON
+        try {
+          const data = JSON.parse(responseText)
+          return new Response(JSON.stringify(data), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: response.status,
+          })
+        } catch {
+          // If not JSON, return as is
+          return new Response(responseText, {
+            headers: { ...corsHeaders, 'Content-Type': 'text/plain' },
+            status: response.status,
+          })
+        }
       }
-      
-      // Error response
-      const errorData = await response.text()
-      return new Response(errorData, {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: response.status,
-      })
     }
-    
-    // Handle other JSON endpoints (translate, etc)
-    const body = await req.json()
-    
-    const response = await fetch(`${SPITCH_API_URL}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${SPITCH_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-    
-    const data = await response.json()
-    return new Response(JSON.stringify(data), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: response.status,
-    })
-    
   } catch (error) {
     console.error('Spitch proxy error:', error)
     return new Response(JSON.stringify({ 

@@ -12,7 +12,7 @@ export const GAME_CURRENCY = {
   name: 'Cowrie Shells',
   singular: 'cowrie',
   plural: 'cowries',
-  symbol: '🐚'
+  iconName: 'Shell' // Lucide icon name
 };
 
 // Offline storage keys
@@ -20,4 +20,20 @@ export const STORAGE_KEYS = {
   USER_PROGRESS: 'afrilingo_progress',
   OFFLINE_LESSONS: 'afrilingo_offline_lessons',
   AUDIO_CACHE: 'afrilingo_audio_cache'
+} as const;
+
+// Achievement types
+export const ACHIEVEMENT_TYPES = {
+  XP_MILESTONE: 'xp_milestone',
+  STREAK_MILESTONE: 'streak_milestone',
+  LESSON_COMPLETION: 'lesson_completion',
+  PERFECT_SCORE: 'perfect_score',
+  CULTURAL_EXPLORER: 'cultural_explorer'
+} as const;
+
+// Language level definitions
+export const LANGUAGE_LEVELS = {
+  BEGINNER: 'beginner',
+  INTERMEDIATE: 'intermediate',
+  ADVANCED: 'advanced'
 } as const;

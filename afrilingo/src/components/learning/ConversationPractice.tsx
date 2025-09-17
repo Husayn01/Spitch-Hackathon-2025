@@ -1,245 +1,272 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { geminiService } from '../../services/gemini.service';
 import { spitchService } from '../../services/spitch.service';
-import { useGameStore } from '../../stores/gameStore';
-import toast from 'react-hot-toast';
+import { Icon } from '../../utils/icons';
+import { showToast } from '../../utils/toast';
+import { MessageCircle, Volume2, Mic, Send, Loader2 } from 'lucide-react';
 
 interface ConversationPracticeProps {
-  language: 'yo' | 'ig' | 'ha' | 'en';
-  topic: string;
+  language: 'yo' | 'ig' | 'ha';
   level: 'beginner' | 'intermediate' | 'advanced';
+  topic?: string;
+  onComplete?: (score: number) => void;
 }
 
-export const ConversationPractice = ({ 
-  language, 
-  topic, 
-  level 
+interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  translation?: string;
+  audioUrl?: string;
+}
+
+export const ConversationPractice = ({
+  language,
+  level,
+  topic = 'greetings',
+  onComplete
 }: ConversationPracticeProps) => {
-  const [scenario, setScenario] = useState<any>(null);
-  const [userInput, setUserInput] = useState('');
+  const [conversation, setConversation] = useState<ConversationMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [feedback, setFeedback] = useState<any>(null);
-  const [showCulturalNotes, setShowCulturalNotes] = useState(false);
-  const { addXP, addCowries } = useGameStore();
+  const [isRecording, setIsRecording] = useState(false);
+  const [userInput, setUserInput] = useState('');
+  const [showTranslations, setShowTranslations] = useState(true);
+  const [conversationStarted, setConversationStarted] = useState(false);
 
-  // Load conversation scenario
-  useEffect(() => {
-    loadScenario();
-  }, [topic, language, level]);
-
-  const loadScenario = async () => {
+  const startConversation = async () => {
     setIsLoading(true);
     try {
-      const result = await geminiService.generateConversation(topic, {
-        language: language === 'yo' ? 'Yoruba' : 
-                  language === 'ig' ? 'Igbo' : 
-                  language === 'ha' ? 'Hausa' : 'Nigerian English',
-        userLevel: level,
-        culturalContext: 'Modern Nigerian setting'
-      });
-      
-      setScenario(result);
-    } catch (error) {
-      toast.error('Failed to load conversation');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      const initialPrompt = await geminiService.startConversation(
+        language === 'yo' ? 'Yoruba' :
+        language === 'ig' ? 'Igbo' : 'Hausa',
+        level,
+        topic
+      );
 
-  const playAudioPrompt = async () => {
-    if (!scenario) return;
-    
-    try {
       const audioBlob = await spitchService.generateSpeech(
-        scenario.aiResponse,
+        initialPrompt.text,
         language
       );
       const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-      await audio.play();
-    } catch (error) {
-      toast.error('Failed to play audio');
-    }
-  };
 
-  const checkResponse = async () => {
-    if (!userInput.trim() || !scenario) return;
-    
-    setIsLoading(true);
-    try {
-      const result = await geminiService.provideFeedback(
-        userInput,
-        scenario.expectedResponse,
-        language === 'yo' ? 'Yoruba' : 
-        language === 'ig' ? 'Igbo' : 
-        language === 'ha' ? 'Hausa' : 'Nigerian English',
-        scenario.userPrompt
-      );
-      
-      setFeedback(result);
-      
-      // Award points based on correctness
-      if (result.isCorrect) {
-        await addXP(15);
-        await addCowries(2);
-        toast.success('Excellent response! 🎉');
-      } else {
-        await addXP(5);
-        toast.info('Good try! Check the feedback below.');
-      }
+      setConversation([{
+        role: 'assistant',
+        content: initialPrompt.text,
+        translation: initialPrompt.translation,
+        audioUrl
+      }]);
+      setConversationStarted(true);
     } catch (error) {
-      toast.error('Failed to check response');
+      showToast.error('Failed to start conversation');
     } finally {
       setIsLoading(false);
     }
   };
 
-  if (isLoading && !scenario) {
+  const sendMessage = async () => {
+    if (!userInput.trim() || isLoading) return;
+
+    const userMessage: ConversationMessage = {
+      role: 'user',
+      content: userInput
+    };
+
+    setConversation(prev => [...prev, userMessage]);
+    setUserInput('');
+    setIsLoading(true);
+
+    try {
+      // Get AI response
+      const response = await geminiService.continueConversation(
+        conversation.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        })),
+        language === 'yo' ? 'Yoruba' :
+        language === 'ig' ? 'Igbo' : 'Hausa'
+      );
+
+      // Generate audio for response
+      const audioBlob = await spitchService.generateSpeech(
+        response.text,
+        language
+      );
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      const assistantMessage: ConversationMessage = {
+        role: 'assistant',
+        content: response.text,
+        translation: response.translation,
+        audioUrl
+      };
+
+      setConversation(prev => [...prev, assistantMessage]);
+
+      // Check if conversation goal is met
+      if (conversation.length >= 6 && onComplete) {
+        const score = 0.8; // Calculate based on actual performance
+        onComplete(score);
+        showToast.achievement('Conversation completed successfully!');
+      }
+    } catch (error) {
+      showToast.error('Failed to get response');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const playAudio = (audioUrl: string) => {
+    const audio = new Audio(audioUrl);
+    audio.play();
+  };
+
+  const handleRecordToggle = () => {
+    if (isRecording) {
+      // Stop recording logic
+      setIsRecording(false);
+      showToast.info('Recording stopped');
+    } else {
+      // Start recording logic
+      setIsRecording(true);
+      showToast.info('Recording started');
+    }
+  };
+
+  if (!conversationStarted) {
     return (
-      <div className="cultural-card flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="inline-flex items-center space-x-2">
-            <div className="w-8 h-8 border-4 border-nigeria-green 
-                          border-t-transparent rounded-full animate-spin"></div>
-            <span>Loading conversation...</span>
-          </div>
-        </div>
+      <div className="cultural-card text-center py-12">
+        <Icon icon="conversation" size="xlarge" className="text-nigeria-green mx-auto mb-4" />
+        <h2 className="text-2xl font-bold mb-2">Conversation Practice</h2>
+        <p className="text-gray-600 mb-6 max-w-md mx-auto">
+          Practice real-life conversations in {
+            language === 'yo' ? 'Yoruba' :
+            language === 'ig' ? 'Igbo' : 'Hausa'
+          } with our AI partner
+        </p>
+        <button
+          onClick={startConversation}
+          disabled={isLoading}
+          className="btn-nigeria inline-flex items-center gap-2"
+        >
+          {isLoading ? (
+            <>
+              <Loader2 size={20} className="animate-spin" />
+              Starting...
+            </>
+          ) : (
+            <>
+              <MessageCircle size={20} />
+              Start Conversation
+            </>
+          )}
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Scenario Card */}
-      {scenario && (
-        <div className="cultural-card">
-          <div className="flex items-start justify-between mb-4">
-            <h3 className="text-xl font-semibold text-gray-900">
-              Conversation Practice: {topic}
-            </h3>
-            <button
-              onClick={() => setShowCulturalNotes(!showCulturalNotes)}
-              className="text-sm text-nigeria-green hover:underline"
-            >
-              {showCulturalNotes ? 'Hide' : 'Show'} Cultural Notes
-            </button>
-          </div>
-
-          {/* Scenario Description */}
-          <div className="bg-gray-50 rounded-lg p-4 mb-4">
-            <p className="text-gray-700 mb-3">
-              <span className="font-medium">Scenario:</span> {scenario.userPrompt}
-            </p>
-            
-            <button
-              onClick={playAudioPrompt}
-              className="text-sm text-nigeria-green hover:underline 
-                       flex items-center gap-1"
-            >
-              <span>🔊</span> Listen to the Nigerian speaker
-            </button>
-          </div>
-
-          {/* Cultural Notes */}
-          {showCulturalNotes && scenario.culturalNotes && (
-            <div className="bg-cowrie-shell/20 rounded-lg p-4 mb-4 space-y-2">
-              <h4 className="font-medium text-gray-900 mb-2">
-                📚 Cultural Context
-              </h4>
-              {scenario.culturalNotes.map((note: string, index: number) => (
-                <div key={index} className="flex items-start gap-2 text-sm">
-                  <span className="text-nigeria-green">•</span>
-                  <span className="text-gray-700">{note}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* User Response Area */}
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Your Response:
-              </label>
-              <textarea
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                placeholder={`Type your response in ${
-                  language === 'yo' ? 'Yoruba' : 
-                  language === 'ig' ? 'Igbo' : 
-                  language === 'ha' ? 'Hausa' : 'Nigerian English'
-                }...`}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg
-                         focus:outline-none focus:ring-2 focus:ring-nigeria-green
-                         resize-none font-nigerian"
-                rows={3}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Tip: Try to respond naturally as you would in this situation
-              </p>
-            </div>
-
-            <button
-              onClick={checkResponse}
-              disabled={!userInput.trim() || isLoading}
-              className="btn-nigeria w-full disabled:opacity-50"
-            >
-              {isLoading ? 'Checking...' : 'Check My Response'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Feedback Display */}
-      {feedback && (
-        <div className={`cultural-card border-l-4 ${
-          feedback.isCorrect ? 'border-nigeria-green' : 'border-royal-gold'
-        }`}>
-          <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-            {feedback.isCorrect ? (
-              <>
-                <span className="text-2xl">✅</span>
-                Excellent Work!
-              </>
-            ) : (
-              <>
-                <span className="text-2xl">💡</span>
-                Keep Learning!
-              </>
-            )}
-          </h4>
-
-          <div className="space-y-3">
-            <p className="text-gray-700">{feedback.feedback}</p>
-
-            {feedback.suggestions.length > 0 && (
-              <div>
-                <p className="font-medium text-gray-900 mb-1">Suggestions:</p>
-                <ul className="list-disc list-inside space-y-1">
-                  {feedback.suggestions.map((suggestion: string, index: number) => (
-                    <li key={index} className="text-gray-700 text-sm">
-                      {suggestion}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="bg-green-50 rounded-lg p-3 mt-3">
-              <p className="text-green-800 text-sm italic">
-                {feedback.encouragement}
-              </p>
-            </div>
-          </div>
-
+    <div className="space-y-4">
+      {/* Conversation Header */}
+      <div className="cultural-card">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold flex items-center gap-2">
+            <Icon icon="conversation" size="medium" className="text-nigeria-green" />
+            Conversation Practice
+          </h3>
           <button
-            onClick={loadScenario}
-            className="mt-4 text-sm text-nigeria-green hover:underline"
+            onClick={() => setShowTranslations(!showTranslations)}
+            className="text-sm text-nigeria-green hover:underline"
           >
-            Try Another Scenario →
+            {showTranslations ? 'Hide' : 'Show'} translations
           </button>
         </div>
-      )}
+
+        {/* Messages */}
+        <div className="space-y-3 mb-4 max-h-96 overflow-y-auto">
+          {conversation.map((message, idx) => (
+            <div
+              key={idx}
+              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div className={`max-w-[70%] ${message.role === 'user' ? 'order-2' : ''}`}>
+                <div
+                  className={`rounded-lg p-3 ${
+                    message.role === 'user'
+                      ? 'bg-nigeria-green text-white'
+                      : 'bg-gray-100'
+                  }`}
+                >
+                  <div className="font-medium">{message.content}</div>
+                  {showTranslations && message.translation && (
+                    <div className="text-sm opacity-80 mt-1 italic">
+                      {message.translation}
+                    </div>
+                  )}
+                </div>
+                {message.audioUrl && (
+                  <button
+                    onClick={() => playAudio(message.audioUrl!)}
+                    className="mt-1 p-1 text-gray-600 hover:text-nigeria-green"
+                  >
+                    <Volume2 size={20} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+          
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="bg-gray-100 rounded-lg p-3 flex items-center gap-2">
+                <Loader2 size={16} className="animate-spin" />
+                <span>Thinking...</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Input Area */}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+            placeholder="Type your response..."
+            disabled={isLoading}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg
+                     focus:outline-none focus:ring-2 focus:ring-nigeria-green
+                     disabled:opacity-50"
+          />
+          <button
+            onClick={handleRecordToggle}
+            className={`p-2 rounded-lg transition-colors ${
+              isRecording 
+                ? 'bg-red-500 text-white' 
+                : 'bg-gray-100 hover:bg-gray-200'
+            }`}
+          >
+            <Mic size={20} />
+          </button>
+          <button
+            onClick={sendMessage}
+            disabled={!userInput.trim() || isLoading}
+            className="btn-nigeria px-4 disabled:opacity-50"
+          >
+            <Send size={20} />
+          </button>
+        </div>
+
+        {/* Conversation Tips */}
+        <div className="mt-4 p-3 bg-yellow-50 rounded-lg">
+          <p className="text-sm text-gray-700 flex items-start gap-2">
+            <Icon icon="tip" size="small" className="text-yellow-600 mt-0.5" />
+            <span>
+              Tip: Try using greetings appropriate for the time of day. 
+              Remember to show respect when addressing elders!
+            </span>
+          </p>
+        </div>
+      </div>
     </div>
   );
 };

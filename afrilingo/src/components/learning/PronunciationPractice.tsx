@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { spitchService } from '../../services/spitch.service';
-import toast from 'react-hot-toast';
+import { showToast } from '../../utils/toast';
+import { Icon } from '../../utils/icons';
+import { Volume2, Mic, MicOff, RotateCcw, Check } from 'lucide-react';
 
 interface PronunciationPracticeProps {
   text: string;
@@ -18,6 +20,7 @@ export const PronunciationPractice = ({
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [score, setScore] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string[]>([]);
+  const [hasListenedToExample, setHasListenedToExample] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -29,8 +32,9 @@ export const PronunciationPractice = ({
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
       await audio.play();
+      setHasListenedToExample(true);
     } catch (error) {
-      toast.error('Failed to play example');
+      showToast.error('Failed to play example');
     }
   };
 
@@ -55,8 +59,9 @@ export const PronunciationPractice = ({
 
       mediaRecorder.start();
       setIsRecording(true);
+      showToast.info('Recording started - speak clearly!');
     } catch (error) {
-      toast.error('Microphone access denied');
+      showToast.error('Microphone access denied');
     }
   };
 
@@ -65,6 +70,7 @@ export const PronunciationPractice = ({
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      showToast.info('Recording stopped');
     }
   };
 
@@ -86,74 +92,115 @@ export const PronunciationPractice = ({
       // Award XP based on score
       if (result.score >= 0.7 && onComplete) {
         onComplete(result.score);
-        toast.success(`Great job! ${Math.round(result.score * 100)}% accuracy`);
+        showToast.success(`Great job! ${Math.round(result.score * 100)}% accuracy`);
+      } else if (result.score < 0.7) {
+        showToast.info('Keep practicing! You\'re getting there.');
       }
     } catch (error) {
-      toast.error('Analysis failed. Please try again.');
+      showToast.error('Analysis failed. Please try again.');
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <h3 className="text-xl font-semibold text-gray-900 mb-4">
-        Pronunciation Practice
-      </h3>
+  // Reset practice
+  const resetPractice = () => {
+    setAudioBlob(null);
+    setScore(null);
+    setFeedback([]);
+    setHasListenedToExample(false);
+  };
 
-      {/* Target Text */}
-      <div className="mb-6">
-        <p className="text-lg font-nigerian text-gray-800 mb-2">{text}</p>
+  return (
+    <div className="space-y-4">
+      {/* Instructions */}
+      <div className="p-4 bg-blue-50 rounded-lg">
+        <p className="text-sm text-blue-800 flex items-start gap-2">
+          <Icon icon="info" size="small" className="text-blue-600 mt-0.5" />
+          <span>
+            Listen to the example first, then record yourself saying the phrase.
+            Pay attention to tone marks and pronunciation!
+          </span>
+        </p>
+      </div>
+
+      {/* Example Player */}
+      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+        <div>
+          <h4 className="font-medium text-gray-900">Listen to Example</h4>
+          <p className="text-sm text-gray-600">Click to hear native pronunciation</p>
+        </div>
         <button
           onClick={playExample}
-          className="text-sm text-nigeria-green hover:underline flex items-center gap-1"
+          className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg
+                   hover:bg-gray-100 transition-colors border border-gray-200"
         >
-          <span>🔊</span> Listen to example
+          <Volume2 size={20} className="text-nigeria-green" />
+          Play Example
         </button>
       </div>
 
       {/* Recording Controls */}
-      <div className="flex gap-4 mb-6">
-        {!isRecording ? (
+      <div className="text-center space-y-4">
+        {!audioBlob ? (
           <button
-            onClick={startRecording}
-            className="flex-1 btn-nigeria flex items-center justify-center gap-2"
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={!hasListenedToExample}
+            className={`inline-flex items-center gap-3 px-6 py-4 rounded-full
+                      text-white font-medium transition-all transform
+                      ${isRecording 
+                        ? 'bg-red-500 hover:bg-red-600 scale-110 animate-pulse' 
+                        : 'bg-nigeria-green hover:bg-green-700'
+                      } ${!hasListenedToExample ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            <span className="text-2xl">🎤</span>
-            Start Recording
-          </button>
-        ) : (
-          <button
-            onClick={stopRecording}
-            className="flex-1 bg-red-500 text-white px-6 py-3 rounded-lg 
-                     hover:bg-red-600 transition-colors flex items-center justify-center gap-2"
-          >
-            <span className="text-2xl animate-pulse">⏹️</span>
-            Stop Recording
-          </button>
-        )}
-
-        {audioBlob && !isRecording && (
-          <button
-            onClick={analyzePronunciation}
-            disabled={isAnalyzing}
-            className="flex-1 bg-royal-gold text-gray-900 px-6 py-3 rounded-lg 
-                     hover:bg-yellow-500 transition-colors disabled:opacity-50
-                     flex items-center justify-center gap-2"
-          >
-            {isAnalyzing ? (
+            {isRecording ? (
               <>
-                <div className="w-5 h-5 border-2 border-gray-700 border-t-transparent 
-                              rounded-full animate-spin"></div>
-                Analyzing...
+                <MicOff size={24} />
+                Stop Recording
               </>
             ) : (
               <>
-                <span className="text-2xl">🎯</span>
-                Check Pronunciation
+                <Mic size={24} />
+                Start Recording
               </>
             )}
           </button>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex justify-center gap-3">
+              <button
+                onClick={analyzePronunciation}
+                disabled={isAnalyzing}
+                className="btn-nigeria inline-flex items-center gap-2"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <Icon icon="loading" size="small" className="animate-spin" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Check size={20} />
+                    Analyze Pronunciation
+                  </>
+                )}
+              </button>
+              <button
+                onClick={resetPractice}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg
+                         hover:bg-gray-300 transition-colors inline-flex items-center gap-2"
+              >
+                <RotateCcw size={20} />
+                Try Again
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!hasListenedToExample && !isRecording && (
+          <p className="text-sm text-gray-500">
+            Please listen to the example first before recording
+          </p>
         )}
       </div>
 
@@ -161,32 +208,56 @@ export const PronunciationPractice = ({
       {score !== null && (
         <div className="space-y-4">
           {/* Score Display */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-600">Accuracy Score</span>
-              <span className="text-2xl font-bold text-nigeria-green">
-                {Math.round(score * 100)}%
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-3">
-              <div 
-                className="bg-nigeria-green h-3 rounded-full transition-all duration-500"
-                style={{ width: `${score * 100}%` }}
-              ></div>
+          <div className="text-center">
+            <div className="inline-flex items-center justify-center w-32 h-32 rounded-full
+                          bg-gradient-to-br from-nigeria-green to-green-600 text-white">
+              <div className="text-center">
+                <div className="text-3xl font-bold">{Math.round(score * 100)}%</div>
+                <div className="text-sm">Accuracy</div>
+              </div>
             </div>
           </div>
 
           {/* Feedback */}
           {feedback.length > 0 && (
-            <div className="space-y-2">
-              {feedback.map((item, index) => (
-                <div key={index} className="flex items-start gap-2 text-sm">
-                  <span>💡</span>
-                  <span className="text-gray-700">{item}</span>
-                </div>
-              ))}
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
+                <Icon icon="tip" size="small" className="text-yellow-600" />
+                Feedback
+              </h4>
+              <ul className="space-y-1">
+                {feedback.map((item, idx) => (
+                  <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                    <span className="text-nigeria-green mt-0.5">•</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
+
+          {/* Encouragement */}
+          <div className={`p-4 rounded-lg text-center ${
+            score >= 0.8 ? 'bg-green-50 text-green-800' :
+            score >= 0.6 ? 'bg-yellow-50 text-yellow-800' :
+            'bg-orange-50 text-orange-800'
+          }`}>
+            {score >= 0.8 && (
+              <p className="font-medium">
+                Excellent work! Your pronunciation is very good!
+              </p>
+            )}
+            {score >= 0.6 && score < 0.8 && (
+              <p className="font-medium">
+                Good effort! Keep practicing to improve your accuracy.
+              </p>
+            )}
+            {score < 0.6 && (
+              <p className="font-medium">
+                Don't give up! Pronunciation takes practice. Try again!
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>
