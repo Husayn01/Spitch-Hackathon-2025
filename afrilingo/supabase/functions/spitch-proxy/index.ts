@@ -16,6 +16,8 @@ serve(async (req) => {
     const url = new URL(req.url)
     const endpoint = url.searchParams.get('endpoint') || ''
     
+    console.log('Received request for endpoint:', endpoint)
+    
     // Validate endpoint
     const allowedEndpoints = ['/v1/speech', '/v1/transcriptions', '/v1/tone-mark', '/v1/translate']
     if (!allowedEndpoints.includes(endpoint)) {
@@ -28,12 +30,20 @@ serve(async (req) => {
       })
     }
     
+    // Get API key from environment
     const SPITCH_API_KEY = Deno.env.get('SPITCH_API_KEY')
+    console.log('SPITCH_API_KEY exists:', !!SPITCH_API_KEY)
+    console.log('SPITCH_API_KEY length:', SPITCH_API_KEY?.length || 0)
+    
     if (!SPITCH_API_KEY) {
-      console.error('SPITCH_API_KEY not configured in environment')
+      console.error('SPITCH_API_KEY not found in environment variables')
       return new Response(JSON.stringify({ 
         error: 'Configuration error',
-        message: 'API key not configured. Please set SPITCH_API_KEY in Supabase Edge Function settings.'
+        message: 'API key not configured. Please set SPITCH_API_KEY in Supabase Edge Function environment variables.',
+        debug: {
+          envVars: Object.keys(Deno.env.toObject()),
+          hasKey: false
+        }
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500,
@@ -49,19 +59,25 @@ serve(async (req) => {
       'Authorization': `Bearer ${SPITCH_API_KEY}`,
     }
     
+    console.log('Authorization header set:', !!spitchHeaders['Authorization'])
+    
     let requestBody: BodyInit | undefined
     const contentType = req.headers.get('content-type')
     
     if (contentType?.includes('multipart/form-data')) {
       // Handle multipart requests (for transcriptions)
       requestBody = await req.formData()
+      console.log('Processing multipart/form-data request')
     } else if (contentType?.includes('application/json')) {
       // Handle JSON requests
-      requestBody = await req.text()
+      const bodyText = await req.text()
+      requestBody = bodyText
       spitchHeaders['Content-Type'] = 'application/json'
+      console.log('Processing JSON request, body:', bodyText.substring(0, 100))
     }
     
     // Make request to Spitch API
+    console.log('Making request to Spitch API...')
     const spitchResponse = await fetch(`${SPITCH_API_URL}${endpoint}`, {
       method: 'POST',
       headers: spitchHeaders,
@@ -69,11 +85,12 @@ serve(async (req) => {
     })
     
     console.log('Spitch API response status:', spitchResponse.status)
+    console.log('Spitch API response headers:', Object.fromEntries(spitchResponse.headers.entries()))
     
     // Handle error responses
     if (!spitchResponse.ok) {
       const errorText = await spitchResponse.text()
-      console.error('Spitch API error:', spitchResponse.status, errorText)
+      console.error('Spitch API error response:', errorText)
       
       // Try to parse as JSON for better error messages
       try {
@@ -82,7 +99,12 @@ serve(async (req) => {
           error: `Spitch API Error`,
           status: spitchResponse.status,
           message: errorJson.message || errorJson.detail || errorText,
-          details: errorJson
+          details: errorJson,
+          debug: {
+            endpoint,
+            authHeaderSent: !!spitchHeaders['Authorization'],
+            apiKeyLength: SPITCH_API_KEY.length
+          }
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           status: spitchResponse.status,
@@ -91,7 +113,12 @@ serve(async (req) => {
         return new Response(JSON.stringify({ 
           error: `Spitch API Error`,
           status: spitchResponse.status,
-          message: errorText 
+          message: errorText,
+          debug: {
+            endpoint,
+            authHeaderSent: !!spitchHeaders['Authorization'],
+            apiKeyLength: SPITCH_API_KEY.length
+          }
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           status: spitchResponse.status,
@@ -99,12 +126,14 @@ serve(async (req) => {
       }
     }
     
-    // Handle response based on content type
+    // Handle successful response based on content type
     const responseContentType = spitchResponse.headers.get('content-type')
+    console.log('Response content type:', responseContentType)
     
     if (responseContentType?.includes('audio')) {
       // Handle audio response (for speech generation)
       const audioData = await spitchResponse.arrayBuffer()
+      console.log('Returning audio response, size:', audioData.byteLength)
       return new Response(audioData, {
         headers: { 
           ...corsHeaders, 
@@ -116,6 +145,7 @@ serve(async (req) => {
     } else if (responseContentType?.includes('application/json')) {
       // Handle JSON response
       const jsonData = await spitchResponse.json()
+      console.log('Returning JSON response')
       return new Response(JSON.stringify(jsonData), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,
@@ -123,6 +153,7 @@ serve(async (req) => {
     } else {
       // Handle other response types
       const textData = await spitchResponse.text()
+      console.log('Returning text response')
       return new Response(textData, {
         headers: { 
           ...corsHeaders, 
@@ -137,7 +168,8 @@ serve(async (req) => {
     return new Response(JSON.stringify({ 
       error: 'Proxy error',
       message: error.message,
-      details: error.toString()
+      details: error.toString(),
+      stack: error.stack
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
