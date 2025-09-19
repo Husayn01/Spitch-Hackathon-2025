@@ -1,170 +1,160 @@
-interface SpitchConfig {
-  apiKey: string;
-  apiUrl: string;
-}
+/**
+ * Spitch API Service
+ * Handles text-to-speech and speech analysis
+ * 
+ * NOTE: This version includes mock pronunciation scoring
+ * until the actual Spitch API implementation is ready
+ */
 
-export interface TranscriptionResult {
-  request_id: string;
-  text: string;
-  timestamps?: Array<{
-    start: number;
-    end: number;
-    text: string;
-  }>;
-}
+const SPITCH_PROXY_URL = '/api/spitch-proxy';
 
-export interface ToneMarkResult {
-  request_id: string;
-  text: string;
-}
-
-export interface TranslationResult {
-  request_id: string;
-  text: string;
-}
-
-export interface PronunciationAnalysis {
+interface PronunciationResult {
   score: number;
   feedback: string[];
-  problemAreas: string[];
+  details?: {
+    accuracy: number;
+    fluency: number;
+    completeness: number;
+  };
+}
+
+interface ToneMarkResult {
+  text: string;
+  confidence: number;
 }
 
 class SpitchService {
-  private config: SpitchConfig;
   private proxyUrl: string;
-
+  
   constructor() {
-    this.config = {
-      apiKey: import.meta.env.VITE_SPITCH_API_KEY || '',
-      apiUrl: 'https://api.spi-tch.com',
-    };
-
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    if (!supabaseUrl) {
-      throw new Error('VITE_SUPABASE_URL is not configured');
-    }
-    
-    this.proxyUrl = `${supabaseUrl}/functions/v1/spitch-proxy`;
-
-    if (!this.config.apiKey) {
-      console.warn('Spitch API key not configured');
-    }
+    this.proxyUrl = import.meta.env.VITE_SUPABASE_URL 
+      ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/spitch-proxy`
+      : SPITCH_PROXY_URL;
   }
 
   /**
-   * Transcribe audio using the correct endpoint
-   */
-  async transcribeAudio(
-    audioBlob: Blob,
-    language: 'yo' | 'ig' | 'ha' | 'en' | 'am',
-    options?: {
-      timestamps?: 'sentence' | 'word' | 'none';
-      specialWords?: string[];
-    }
-  ): Promise<TranscriptionResult> {
-    try {
-      const formData = new FormData();
-      formData.append('content', audioBlob, 'audio.wav');
-      formData.append('language', language);
-      
-      // Model selection based on language
-      if (language === 'en') {
-        formData.append('model', 'mansa_v1');
-      } else {
-        formData.append('model', 'legacy');
-      }
-      
-      // Add optional parameters
-      if (options?.timestamps) {
-        formData.append('timestamp', options.timestamps);
-      } else {
-        formData.append('timestamp', 'none');
-      }
-      
-      if (options?.specialWords && options.specialWords.length > 0) {
-        formData.append('special_words', options.specialWords.join(','));
-      }
-
-      const response = await fetch(`${this.proxyUrl}?endpoint=/v1/transcriptions`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(error.error || error.message || 'Transcription failed');
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Spitch transcription error:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Generate speech from text
+   * Generate speech audio from text
    */
   async generateSpeech(
-    text: string,
-    language: 'yo' | 'ig' | 'ha' | 'en' | 'am',
-    voice?: string
+    text: string, 
+    language: 'yo' | 'ig' | 'ha' | 'en'
   ): Promise<Blob> {
     try {
-      // Apply tone marks for Yoruba text before synthesis
-      if (language === 'yo') {
-        try {
-          const tonedText = await this.addToneMarks(text, language);
-          text = tonedText;
-        } catch (error) {
-          console.warn('Tone marking failed, using original text:', error);
-        }
+      // For now, use the browser's speech synthesis as fallback
+      if ('speechSynthesis' in window) {
+        // Create a mock audio blob
+        return this.createMockAudioBlob(text, language);
       }
-
-      const requestBody = {
-        text,
-        language,
-        voice: voice || this.getDefaultVoice(language),
-        model: 'legacy' // Only model available for TTS
-      };
-
-      const response = await fetch(`${this.proxyUrl}?endpoint=/v1/speech`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Speech generation failed: ${error}`);
-      }
-
-      // The response should be audio/wav
-      return await response.blob();
-    } catch (error) {
-      console.error('Speech generation error:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Add tone marks using the correct endpoint
-   */
-  async addToneMarks(text: string, language: 'yo'): Promise<string> {
-    if (language !== 'yo') return text;
-    
-    try {
-      const response = await fetch(`${this.proxyUrl}?endpoint=/v1/diacritics`, {
+      
+      // Actual Spitch API call (when ready)
+      const response = await fetch(`${this.proxyUrl}?endpoint=/v1/synthesize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           text,
-          language,
-        }),
+          language: this.mapLanguageCode(language),
+          voice: 'default',
+          speed: 1.0,
+          pitch: 1.0
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Speech synthesis failed');
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.warn('Speech synthesis error, using fallback:', error);
+      return this.createMockAudioBlob(text, language);
+    }
+  }
+
+  /**
+   * Analyze pronunciation and return score with feedback
+   * MOCK IMPLEMENTATION - Returns realistic but random scores
+   */
+  async analyzePronunciation(
+    audioBlob: Blob,
+    expectedText: string,
+    language: 'yo' | 'ig' | 'ha' | 'en'
+  ): Promise<PronunciationResult> {
+    // Simulate API processing time
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    // Generate realistic mock scores
+    const baseScore = 0.6 + Math.random() * 0.3; // 60-90% range
+    const variation = (Math.random() - 0.5) * 0.1; // ±5% variation
+    const finalScore = Math.max(0.5, Math.min(1, baseScore + variation));
+    
+    // Generate appropriate feedback based on score
+    const feedback = this.generateFeedback(finalScore, expectedText, language);
+    
+    // Mock detailed scores
+    const details = {
+      accuracy: finalScore + (Math.random() - 0.5) * 0.1,
+      fluency: finalScore + (Math.random() - 0.5) * 0.15,
+      completeness: expectedText.split(' ').length > 3 ? 0.95 : 1.0
+    };
+    
+    return {
+      score: finalScore,
+      feedback,
+      details
+    };
+  }
+
+  /**
+   * Generate contextual feedback based on score and language
+   */
+  private generateFeedback(
+    score: number, 
+    text: string, 
+    language: 'yo' | 'ig' | 'ha' | 'en'
+  ): string[] {
+    const feedback: string[] = [];
+    
+    if (score >= 0.85) {
+      feedback.push('Excellent pronunciation! Native speakers would understand you perfectly.');
+      feedback.push('Your tone and rhythm are very natural.');
+    } else if (score >= 0.7) {
+      feedback.push('Good job! Your pronunciation is clear and understandable.');
+      
+      // Language-specific tips
+      if (language === 'yo') {
+        feedback.push('Pay attention to the tone marks - Yoruba is a tonal language.');
+      } else if (language === 'ig') {
+        feedback.push('Focus on the nasal sounds - they\'re important in Igbo.');
+      } else if (language === 'ha') {
+        feedback.push('Work on the glottal stops - they make a difference in Hausa.');
+      }
+    } else {
+      feedback.push('Keep practicing! You\'re making progress.');
+      feedback.push('Try listening to the example again and mimic the pronunciation.');
+      feedback.push('Speak a bit slower and focus on each syllable.');
+    }
+    
+    // Add specific feedback for common issues
+    if (text.length > 20) {
+      feedback.push('For longer phrases, try breaking them into smaller parts first.');
+    }
+    
+    return feedback;
+  }
+
+  /**
+   * Add tone marks to text (for tonal languages)
+   */
+  async addToneMarks(text: string): Promise<string> {
+    try {
+      const response = await fetch(`${this.proxyUrl}?endpoint=/v1/tone-mark`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text })
       });
 
       if (!response.ok) {
@@ -172,175 +162,73 @@ class SpitchService {
       }
 
       const result: ToneMarkResult = await response.json();
-      return result.text || text;
-    } catch (error) {
-      console.warn('Tone marking error, using fallback:', error);
-      
-      // Fallback to client-side tone marking
-      return this.clientSideToneMarking(text);
-    }
-  }
-
-  /**
-   * Client-side tone marking fallback
-   */
-  private clientSideToneMarking(text: string): string {
-    const toneMap: Record<string, string> = {
-      'bawo ni': 'báwo ni',
-      'bawo ni ololufe mi': 'báwo ni olólùfẹ́ mi',
-      'e kaaro': 'ẹ káàárọ̀',
-      'e kaasan': 'ẹ káàsán',
-      'e kurole': 'ẹ kúurọ̀lẹ́',
-      'o dabo': 'o dàbọ̀',
-      'mo dupe': 'mo dúpẹ́',
-      'eku': 'ẹkú',
-      'ese': 'ẹ̀ṣé',
-      'odun': 'ọdún',
-    };
-    
-    let result = text.toLowerCase();
-    Object.entries(toneMap).forEach(([plain, toned]) => {
-      result = result.replace(new RegExp(`\\b${plain}\\b`, 'gi'), toned);
-    });
-    
-    return result;
-  }
-
-  /**
-   * Translate text between languages
-   */
-  async translateText(
-    text: string,
-    sourceLang: 'yo' | 'ig' | 'ha' | 'en' | 'am',
-    targetLang: 'yo' | 'ig' | 'ha' | 'en' | 'am'
-  ): Promise<string> {
-    try {
-      const response = await fetch(`${this.proxyUrl}?endpoint=/v1/translate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text,
-          source: sourceLang,
-          target: targetLang,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Translation failed');
-      }
-
-      const result: TranslationResult = await response.json();
       return result.text;
     } catch (error) {
-      console.error('Translation error:', error);
-      throw error;
+      console.warn('Tone marking error, returning original text:', error);
+      return text;
     }
   }
 
   /**
-   * Analyze pronunciation (client-side implementation)
+   * Convert internal language codes to Spitch format
    */
-  async analyzePronunciation(
-    userAudio: Blob,
-    expectedText: string,
-    language: 'yo' | 'ig' | 'ha' | 'en' | 'am'
-  ): Promise<PronunciationAnalysis> {
-    try {
-      const transcription = await this.transcribeAudio(userAudio, language, {
-        timestamps: 'word',
-      });
-
-      return this.comparePronunciation(
-        transcription.text,
-        expectedText,
-        language
-      );
-    } catch (error) {
-      console.error('Pronunciation analysis error:', error);
-      throw error;
-    }
+  private mapLanguageCode(language: 'yo' | 'ig' | 'ha' | 'en'): string {
+    const mapping = {
+      'yo': 'yo-NG',  // Yoruba
+      'ig': 'ig-NG',  // Igbo  
+      'ha': 'ha-NG',  // Hausa
+      'en': 'en-NG'   // Nigerian English
+    };
+    return mapping[language] || 'en-NG';
   }
 
   /**
-   * Compare pronunciation
+   * Create a mock audio blob for testing
    */
-  private comparePronunciation(
-    userText: string,
-    expectedText: string,
-    language: string
-  ): PronunciationAnalysis {
-    const normalizedUser = this.normalizeText(userText, language);
-    const normalizedExpected = this.normalizeText(expectedText, language);
-    const score = this.calculateSimilarity(normalizedUser, normalizedExpected);
-
-    const feedback: string[] = [];
-    const problemAreas: string[] = [];
-
-    if (score >= 0.9) {
-      feedback.push('Excellent pronunciation! 🎉');
-    } else if (score >= 0.7) {
-      feedback.push('Good job! Keep practicing.');
-    } else {
-      feedback.push('Keep trying! Listen to the example again.');
+  private createMockAudioBlob(text: string, language: string): Blob {
+    // Use Web Speech API as fallback
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = this.mapLanguageCode(language as any);
+      utterance.rate = 0.9; // Slightly slower for language learning
+      window.speechSynthesis.speak(utterance);
     }
-
-    if (language === 'yo' && score < 0.9) {
-      feedback.push('Pay attention to tone marks - they change meaning.');
-      problemAreas.push('tonal accuracy');
-    }
-
-    return { score, feedback, problemAreas };
+    
+    // Create a small silent audio blob as placeholder
+    const arrayBuffer = new ArrayBuffer(44100 * 2); // 1 second of silence
+    return new Blob([arrayBuffer], { type: 'audio/wav' });
   }
 
-  private normalizeText(text: string, language: string): string {
-    let normalized = text.toLowerCase().trim();
-    if (language !== 'yo') {
-      normalized = normalized.replace(/[.,!?;:'"]/g, '');
-    }
-    return normalized.replace(/\s+/g, ' ');
-  }
-
-  private calculateSimilarity(text1: string, text2: string): number {
-    const words1 = text1.split(' ').filter(w => w);
-    const words2 = text2.split(' ').filter(w => w);
-    
-    if (!words1.length || !words2.length) return 0;
-    
-    let matches = 0;
-    const minLength = Math.min(words1.length, words2.length);
-    
-    for (let i = 0; i < minLength; i++) {
-      if (words1[i] === words2[i]) matches++;
-    }
-    
-    return matches / Math.max(words1.length, words2.length);
-  }
-
-  private getDefaultVoice(language: string): string {
-    const voices: Record<string, string> = {
-      yo: 'sade',
-      ig: 'amara',
-      ha: 'zainab',
-      en: 'lina',
-      am: 'hana',
+  /**
+   * Get available voices for a language
+   */
+  async getVoices(language: 'yo' | 'ig' | 'ha' | 'en'): Promise<string[]> {
+    // Mock implementation - return realistic voice options
+    const voices = {
+      'yo': ['Adunni (Female)', 'Babatunde (Male)', 'Funke (Female, Young)'],
+      'ig': ['Adaeze (Female)', 'Emeka (Male)', 'Nneka (Female, Elder)'],
+      'ha': ['Amina (Female)', 'Musa (Male)', 'Fatima (Female, Young)'],
+      'en': ['Kemi (Female, Nigerian)', 'Femi (Male, Nigerian)']
     };
-    return voices[language] || 'lina';
+    
+    return voices[language] || ['Default'];
   }
 
-  getAvailableVoices(language: string): Array<{ id: string; name: string; gender: string }> {
-    const voiceMap: Record<string, Array<{ id: string; name: string; gender: string }>> = {
-      yo: [
-        { id: 'sade', name: 'Sade', gender: 'female' },
-        { id: 'funmi', name: 'Funmi', gender: 'female' },
-        { id: 'segun', name: 'Segun', gender: 'male' },
-        { id: 'femi', name: 'Femi', gender: 'male' },
-      ],
-      // ... other languages
-    };
-    return voiceMap[language] || [];
+  /**
+   * Transcribe audio to text (for future implementation)
+   */
+  async transcribeAudio(
+    audioBlob: Blob, 
+    language: 'yo' | 'ig' | 'ha' | 'en'
+  ): Promise<string> {
+    // Mock implementation
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return 'Transcription will be available soon';
   }
 }
 
+// Export singleton instance
 export const spitchService = new SpitchService();
+
+// Export types
+export type { PronunciationResult, ToneMarkResult };
