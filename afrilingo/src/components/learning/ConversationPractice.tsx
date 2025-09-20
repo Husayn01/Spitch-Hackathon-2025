@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { geminiService } from '../../services/gemini.service';
 import { spitchService } from '../../services/spitch.service';
 import { Icon } from '../../utils/icons';
@@ -31,6 +31,9 @@ export const ConversationPractice = ({
   const [userInput, setUserInput] = useState('');
   const [showTranslations, setShowTranslations] = useState(true);
   const [conversationStarted, setConversationStarted] = useState(false);
+  
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const startConversation = async () => {
     setIsLoading(true);
@@ -70,14 +73,16 @@ export const ConversationPractice = ({
       content: userInput
     };
 
-    setConversation(prev => [...prev, userMessage]);
+    // Add user message to conversation
+    const updatedConversation = [...conversation, userMessage];
+    setConversation(updatedConversation);
     setUserInput('');
     setIsLoading(true);
 
     try {
-      // Get AI response
+      // Get AI response - pass the updated conversation
       const response = await geminiService.continueConversation(
-        conversation.map(msg => ({
+        updatedConversation.map(msg => ({
           role: msg.role,
           content: msg.content
         })),
@@ -99,16 +104,20 @@ export const ConversationPractice = ({
         audioUrl
       };
 
+      // Add assistant message to conversation
       setConversation(prev => [...prev, assistantMessage]);
 
       // Check if conversation goal is met
-      if (conversation.length >= 6 && onComplete) {
+      if (updatedConversation.length >= 6 && onComplete) {
         const score = 0.8; // Calculate based on actual performance
         onComplete(score);
         showToast.achievement('Conversation completed successfully!');
       }
     } catch (error) {
+      console.error('Conversation error:', error);
       showToast.error('Failed to get response');
+      // Remove the user message if there was an error
+      setConversation(conversation);
     } finally {
       setIsLoading(false);
     }
@@ -116,18 +125,66 @@ export const ConversationPractice = ({
 
   const playAudio = (audioUrl: string) => {
     const audio = new Audio(audioUrl);
-    audio.play();
+    audio.play().catch(err => {
+      console.error('Audio playback error:', err);
+      showToast.error('Failed to play audio');
+    });
   };
 
-  const handleRecordToggle = () => {
-    if (isRecording) {
-      // Stop recording logic
-      setIsRecording(false);
-      showToast.info('Recording stopped');
-    } else {
-      // Start recording logic
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
+      
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        stream.getTracks().forEach(track => track.stop());
+        
+        // Transcribe the audio and use as input
+        try {
+          const transcription = await spitchService.transcribeAudio(audioBlob, language);
+          setUserInput(transcription);
+          showToast.success('Recording transcribed');
+        } catch (error) {
+          showToast.error('Failed to transcribe audio');
+        }
+      };
+
+      mediaRecorder.start();
       setIsRecording(true);
-      showToast.info('Recording started');
+      showToast.info('Recording started - speak clearly!');
+    } catch (error) {
+      console.error('Microphone error:', error);
+      showToast.error('Microphone access denied');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
     }
   };
 
@@ -165,7 +222,6 @@ export const ConversationPractice = ({
 
   return (
     <div className="space-y-4">
-      {/* Conversation Header */}
       <div className="cultural-card">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -205,7 +261,8 @@ export const ConversationPractice = ({
                 {message.audioUrl && (
                   <button
                     onClick={() => playAudio(message.audioUrl!)}
-                    className="mt-1 p-1 text-gray-600 hover:text-nigeria-green"
+                    className="mt-1 p-1 text-gray-600 hover:text-nigeria-green transition-colors"
+                    title="Play audio"
                   >
                     <Volume2 size={20} />
                   </button>
@@ -218,7 +275,7 @@ export const ConversationPractice = ({
             <div className="flex justify-start">
               <div className="bg-gray-100 rounded-lg p-3 flex items-center gap-2">
                 <Loader2 size={16} className="animate-spin" />
-                <span>Thinking...</span>
+                <span className="text-gray-600">Thinking...</span>
               </div>
             </div>
           )}
@@ -230,27 +287,30 @@ export const ConversationPractice = ({
             type="text"
             value={userInput}
             onChange={(e) => setUserInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+            onKeyPress={handleKeyPress}
             placeholder="Type your response..."
-            disabled={isLoading}
+            disabled={isLoading || isRecording}
             className="flex-1 px-4 py-2 border border-gray-300 rounded-lg
                      focus:outline-none focus:ring-2 focus:ring-nigeria-green
-                     disabled:opacity-50"
+                     disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <button
-            onClick={handleRecordToggle}
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={isLoading}
             className={`p-2 rounded-lg transition-colors ${
               isRecording 
-                ? 'bg-red-500 text-white' 
+                ? 'bg-red-500 text-white animate-pulse' 
                 : 'bg-gray-100 hover:bg-gray-200'
-            }`}
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+            title={isRecording ? "Stop recording" : "Start recording"}
           >
             <Mic size={20} />
           </button>
           <button
             onClick={sendMessage}
             disabled={!userInput.trim() || isLoading}
-            className="btn-nigeria px-4 disabled:opacity-50"
+            className="btn-nigeria px-4 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Send message"
           >
             <Send size={20} />
           </button>
@@ -259,10 +319,12 @@ export const ConversationPractice = ({
         {/* Conversation Tips */}
         <div className="mt-4 p-3 bg-yellow-50 rounded-lg">
           <p className="text-sm text-gray-700 flex items-start gap-2">
-            <Icon icon="tip" size="small" className="text-yellow-600 mt-0.5" />
+            <Icon icon="tip" size="small" className="text-yellow-600 mt-0.5 flex-shrink-0" />
             <span>
-              Tip: Try using greetings appropriate for the time of day. 
-              Remember to show respect when addressing elders!
+              {isRecording ? 
+                'Speak clearly into your microphone. Click the red button to stop.' :
+                'Try using greetings appropriate for the time of day. Remember to show respect when addressing elders!'
+              }
             </span>
           </p>
         </div>
