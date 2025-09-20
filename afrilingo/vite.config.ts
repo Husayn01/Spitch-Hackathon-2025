@@ -5,28 +5,44 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      // Fix for packages that might have resolution issues
+      // Ensure proper module resolution
       '@': '/src'
     }
   },
-  optimizeDeps: {
-    // Include problematic dependencies
-    include: ['@google/generative-ai']
-  },
   build: {
-    // Handle external dependencies
     commonjsOptions: {
       transformMixedEsModules: true
     },
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'supabase-vendor': ['@supabase/supabase-js'],
-          'ui-vendor': ['framer-motion', 'lucide-react'],
-          'ai-vendor': ['@google/generative-ai']
+        manualChunks: (id) => {
+          if (id.includes('node_modules')) {
+            if (id.includes('@google/generative-ai')) {
+              return 'google-ai';
+            }
+            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+              return 'react-vendor';
+            }
+            if (id.includes('@supabase')) {
+              return 'supabase-vendor';
+            }
+            if (id.includes('framer-motion')) {
+              return 'motion-vendor';
+            }
+            if (id.includes('lucide-react')) {
+              return 'icons-vendor';
+            }
+          }
         }
       }
+    },
+    // Increase chunk size warning limit
+    chunkSizeWarningLimit: 1500
+  },
+  optimizeDeps: {
+    include: ['@google/generative-ai'],
+    esbuildOptions: {
+      target: 'esnext'
     }
   }
 });
