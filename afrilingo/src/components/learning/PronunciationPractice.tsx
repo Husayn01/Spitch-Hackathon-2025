@@ -1,14 +1,15 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { spitchService } from '../../services/spitch.service';
 import { showToast } from '../../utils/toast';
 import { Icon } from '../../utils/icons';
-import { Volume2, Mic, MicOff, RotateCcw, Check, Loader2 } from 'lucide-react';
+import { Volume2, Mic, MicOff, RotateCcw, Check, Loader2, Zap, Play, Pause } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface PronunciationPracticeProps {
   text: string;
   language: 'yo' | 'ig' | 'ha' | 'en';
   onComplete?: (score: number) => void;
-  voice?: string; // Optional voice override
+  voice?: string;
 }
 
 export const PronunciationPractice = ({ 
@@ -26,19 +27,23 @@ export const PronunciationPractice = ({
   const [hasListenedToExample, setHasListenedToExample] = useState(false);
   const [availableVoices, setAvailableVoices] = useState<Array<{id: string, name: string, gender: string}>>([]);
   const [selectedVoice, setSelectedVoice] = useState<string>('');
+  const [isPlaying, setIsPlaying] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Load available voices on mount
+  // Check if dark mode is enabled
+  const isDark = document.documentElement.classList.contains('dark') || 
+                document.body.classList.contains('bg-gray-900') ||
+                true; // Default to dark mode
+
   useEffect(() => {
     const voices = spitchService.getVoices(language);
     setAvailableVoices(voices);
     setSelectedVoice(voice || voices[0]?.id || '');
   }, [language, voice]);
 
-  // Cleanup audio on unmount
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -48,12 +53,11 @@ export const PronunciationPractice = ({
     };
   }, []);
 
-  // Play example pronunciation
   const playExample = async () => {
     setIsLoadingExample(true);
+    setIsPlaying(true);
     
     try {
-      // Stop any currently playing audio
       if (audioRef.current) {
         audioRef.current.pause();
       }
@@ -64,6 +68,7 @@ export const PronunciationPractice = ({
       audioRef.current = new Audio(audioUrl);
       audioRef.current.onended = () => {
         URL.revokeObjectURL(audioUrl);
+        setIsPlaying(false);
       };
       
       await audioRef.current.play();
@@ -72,12 +77,12 @@ export const PronunciationPractice = ({
     } catch (error) {
       console.error('Failed to play example:', error);
       showToast.error('Failed to play example. Please check your connection and API key.');
+      setIsPlaying(false);
     } finally {
       setIsLoadingExample(false);
     }
   };
 
-  // Start recording
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -116,7 +121,6 @@ export const PronunciationPractice = ({
     }
   };
 
-  // Stop recording
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
@@ -125,7 +129,6 @@ export const PronunciationPractice = ({
     }
   };
 
-  // Analyze pronunciation
   const analyzePronunciation = async () => {
     if (!audioBlob) return;
 
@@ -143,7 +146,6 @@ export const PronunciationPractice = ({
       setScore(result.score);
       setFeedback(result.feedback);
 
-      // Award XP based on score
       if (result.score >= 0.7 && onComplete) {
         onComplete(result.score);
         showToast.success(`Great job! ${Math.round(result.score * 100)}% accuracy`);
@@ -158,43 +160,76 @@ export const PronunciationPractice = ({
     }
   };
 
-  // Reset practice
   const resetPractice = () => {
     setAudioBlob(null);
     setScore(null);
     setFeedback([]);
     setHasListenedToExample(false);
     
-    // Stop any playing audio
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = '';
     }
   };
 
+  const getScoreColor = (score: number) => {
+    if (score >= 0.8) return 'from-emerald-500 to-teal-600';
+    if (score >= 0.6) return 'from-yellow-500 to-orange-600';
+    return 'from-orange-500 to-red-600';
+  };
+
+  const getScoreEmoji = (score: number) => {
+    if (score >= 0.9) return '🎉';
+    if (score >= 0.8) return '🌟';
+    if (score >= 0.7) return '👏';
+    if (score >= 0.6) return '💪';
+    return '🎯';
+  };
+
   return (
-    <div className="space-y-4">
-      {/* Instructions */}
-      <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-        <p className="text-sm text-blue-800 flex items-start gap-2">
-          <Icon icon="info" size="small" className="text-blue-600 mt-0.5 flex-shrink-0" />
-          <span>
-            Listen to the native speaker example first, then record yourself saying the phrase.
-            {language === 'yo' && ' Pay special attention to tone marks!'}
-            {language === 'ig' && ' Focus on nasal sounds and pronunciation.'}
-            {language === 'ha' && ' Notice the glottal stops and intonation.'}
-          </span>
-        </p>
-      </div>
+    <div className="space-y-6">
+      {/* Instructions Card */}
+      <motion.div 
+        className={`p-6 rounded-2xl ${isDark ? 'bg-gray-700' : 'bg-blue-50'} border ${
+          isDark ? 'border-gray-600' : 'border-blue-200'
+        }`}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <div className="flex items-start gap-3">
+          <Zap className={`w-5 h-5 mt-0.5 ${isDark ? 'text-yellow-400' : 'text-blue-600'}`} />
+          <div className="flex-1">
+            <h4 className={`font-semibold mb-1 ${isDark ? 'text-yellow-400' : 'text-blue-900'}`}>
+              Practice Tips
+            </h4>
+            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-blue-800'}`}>
+              Listen to the native speaker example first, then record yourself saying the phrase.
+              {language === 'yo' && ' Pay special attention to tone marks!'}
+              {language === 'ig' && ' Focus on nasal sounds and pronunciation.'}
+              {language === 'ha' && ' Notice the glottal stops and intonation.'}
+            </p>
+          </div>
+        </div>
+      </motion.div>
 
       {/* Voice Selection */}
       {availableVoices.length > 1 && (
-        <div className="flex items-center gap-3">
-          <label className="text-sm font-medium text-gray-700">Voice:</label>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1 }}
+        >
+          <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+            Choose Voice
+          </label>
           <select
             value={selectedVoice}
             onChange={(e) => setSelectedVoice(e.target.value)}
-            className="px-3 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-nigeria-green focus:border-transparent"
+            className={`w-full px-4 py-2 rounded-xl border-2 transition-all ${
+              isDark 
+                ? 'bg-gray-800 border-gray-600 text-white focus:border-emerald-500' 
+                : 'bg-white border-gray-200 text-gray-900 focus:border-emerald-600'
+            } focus:outline-none focus:ring-4 focus:ring-emerald-500/20`}
           >
             {availableVoices.map(v => (
               <option key={v.id} value={v.id}>
@@ -202,160 +237,229 @@ export const PronunciationPractice = ({
               </option>
             ))}
           </select>
-        </div>
+        </motion.div>
       )}
 
-      {/* Example Player */}
-      <div className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-200">
-        <div>
-          <h4 className="font-medium text-gray-900">Listen to Native Speaker</h4>
-          <p className="text-sm text-gray-600">
-            {hasListenedToExample ? 'Click to play again' : 'Click to hear correct pronunciation'}
-          </p>
-        </div>
-        <button
+      {/* Text Display */}
+      <motion.div 
+        className={`p-8 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-lg text-center`}
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 0.2 }}
+      >
+        <h3 className="text-3xl font-bold mb-2 font-nigerian">{text}</h3>
+        <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+          Practice saying this phrase
+        </p>
+      </motion.div>
+
+      {/* Action Buttons */}
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Listen Button */}
+        <motion.button
           onClick={playExample}
-          disabled={isLoadingExample}
-          className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg
-                   hover:bg-gray-50 transition-all duration-200 border border-gray-200
-                   disabled:opacity-50 disabled:cursor-not-allowed
-                   shadow-sm hover:shadow-md"
+          disabled={isLoadingExample || isPlaying}
+          className={`relative overflow-hidden p-6 rounded-2xl font-semibold transition-all ${
+            hasListenedToExample
+              ? isDark 
+                ? 'bg-emerald-600/20 text-emerald-400 border-2 border-emerald-600' 
+                : 'bg-emerald-50 text-emerald-700 border-2 border-emerald-300'
+              : 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white'
+          } ${isLoadingExample || isPlaying ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
+          whileHover={!isLoadingExample && !isPlaying ? { scale: 1.05 } : {}}
+          whileTap={!isLoadingExample && !isPlaying ? { scale: 0.95 } : {}}
         >
-          {isLoadingExample ? (
-            <Loader2 size={20} className="animate-spin text-gray-600" />
-          ) : (
-            <Volume2 size={20} className="text-nigeria-green" />
-          )}
-          {isLoadingExample ? 'Loading...' : 'Play Example'}
-        </button>
-      </div>
-
-      {/* Recording Controls */}
-      <div className="text-center space-y-4">
-        {!audioBlob ? (
-          <button
-            onClick={isRecording ? stopRecording : startRecording}
-            disabled={!hasListenedToExample}
-            className={`inline-flex items-center gap-3 px-6 py-4 rounded-full
-                      text-white font-medium transition-all duration-300 transform
-                      ${isRecording 
-                        ? 'bg-red-500 hover:bg-red-600 scale-110 animate-pulse shadow-lg' 
-                        : 'bg-nigeria-green hover:bg-green-700 hover:scale-105 shadow-md hover:shadow-lg'
-                      } ${!hasListenedToExample ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {isRecording ? (
-              <>
-                <MicOff size={24} />
-                Stop Recording
-              </>
+          <div className="flex items-center justify-center gap-3">
+            {isLoadingExample ? (
+              <Loader2 className="w-6 h-6 animate-spin" />
+            ) : isPlaying ? (
+              <Pause className="w-6 h-6" />
             ) : (
-              <>
-                <Mic size={24} />
-                Start Recording
-              </>
+              <Play className="w-6 h-6" />
             )}
-          </button>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex justify-center gap-3">
-              <button
-                onClick={analyzePronunciation}
-                disabled={isAnalyzing}
-                className="btn-nigeria inline-flex items-center gap-2 px-6 py-3"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <Loader2 size={20} className="animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Check size={20} />
-                    Analyze Pronunciation
-                  </>
-                )}
-              </button>
-              <button
-                onClick={resetPractice}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg
-                         hover:bg-gray-300 transition-colors inline-flex items-center gap-2"
-              >
-                <RotateCcw size={20} />
-                Try Again
-              </button>
-            </div>
+            <span>{isPlaying ? 'Playing...' : 'Listen to Native Speaker'}</span>
           </div>
-        )}
+          {hasListenedToExample && (
+            <motion.div
+              className="absolute top-2 right-2"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring" }}
+            >
+              <Check className="w-5 h-5" />
+            </motion.div>
+          )}
+        </motion.button>
 
-        {!hasListenedToExample && !isRecording && (
-          <p className="text-sm text-gray-500 animate-pulse">
-            👆 Please listen to the example first before recording
-          </p>
-        )}
+        {/* Record Button */}
+        <motion.button
+          onClick={isRecording ? stopRecording : startRecording}
+          disabled={!hasListenedToExample}
+          className={`relative overflow-hidden p-6 rounded-2xl font-semibold transition-all ${
+            !hasListenedToExample
+              ? isDark
+                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              : isRecording
+                ? 'bg-gradient-to-r from-red-600 to-pink-600 text-white animate-pulse'
+                : audioBlob
+                  ? isDark
+                    ? 'bg-orange-600/20 text-orange-400 border-2 border-orange-600'
+                    : 'bg-orange-50 text-orange-700 border-2 border-orange-300'
+                  : isDark
+                    ? 'bg-gray-700 hover:bg-gray-600 text-white'
+                    : 'bg-gray-100 hover:bg-gray-200 text-gray-900'
+          }`}
+          whileHover={hasListenedToExample && !isRecording ? { scale: 1.05 } : {}}
+          whileTap={hasListenedToExample && !isRecording ? { scale: 0.95 } : {}}
+        >
+          <div className="flex items-center justify-center gap-3">
+            {isRecording ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+            <span>
+              {isRecording ? 'Stop Recording' : audioBlob ? 'Record Again' : 'Record Your Voice'}
+            </span>
+          </div>
+          {audioBlob && !isRecording && (
+            <motion.div
+              className="absolute top-2 right-2"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring" }}
+            >
+              <Check className="w-5 h-5" />
+            </motion.div>
+          )}
+        </motion.button>
       </div>
+
+      {/* Analyze Button */}
+      <AnimatePresence>
+        {audioBlob && (
+          <motion.div
+            className="flex gap-4"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+          >
+            <motion.button
+              onClick={analyzePronunciation}
+              disabled={isAnalyzing}
+              className="flex-1 px-6 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold rounded-xl
+                       hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed
+                       flex items-center justify-center gap-3"
+              whileHover={!isAnalyzing ? { scale: 1.02 } : {}}
+              whileTap={!isAnalyzing ? { scale: 0.98 } : {}}
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Check className="w-5 h-5" />
+                  Analyze Pronunciation
+                </>
+              )}
+            </motion.button>
+            
+            <motion.button
+              onClick={resetPractice}
+              className={`px-6 py-4 rounded-xl font-semibold flex items-center gap-2 ${
+                isDark
+                  ? 'bg-gray-700 hover:bg-gray-600 text-white'
+                  : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+              }`}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <RotateCcw className="w-5 h-5" />
+              Try Again
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Results */}
-      {score !== null && (
-        <div className="space-y-4 animate-fade-in">
-          {/* Score Display */}
-          <div className="text-center">
-            <div className={`inline-flex items-center justify-center w-32 h-32 rounded-full
-                          bg-gradient-to-br text-white shadow-lg transform transition-all duration-500
-                          ${score >= 0.8 ? 'from-green-500 to-green-600' :
-                            score >= 0.6 ? 'from-yellow-500 to-yellow-600' :
-                            'from-orange-500 to-orange-600'}`}>
-              <div className="text-center">
-                <div className="text-3xl font-bold">{Math.round(score * 100)}%</div>
-                <div className="text-sm">Accuracy</div>
-              </div>
-            </div>
-          </div>
+      <AnimatePresence>
+        {score !== null && (
+          <motion.div
+            className="space-y-6"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -30 }}
+          >
+            {/* Score Display */}
+            <motion.div 
+              className={`text-center p-8 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-lg`}
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring" }}
+            >
+              <motion.div
+                className={`inline-flex items-center justify-center w-40 h-40 rounded-full
+                          bg-gradient-to-br ${getScoreColor(score)} text-white shadow-2xl mb-4`}
+                initial={{ rotate: -180, scale: 0 }}
+                animate={{ rotate: 0, scale: 1 }}
+                transition={{ type: "spring", duration: 0.8 }}
+              >
+                <div className="text-center">
+                  <div className="text-5xl font-bold">{Math.round(score * 100)}%</div>
+                  <div className="text-sm mt-1">Accuracy</div>
+                </div>
+              </motion.div>
+              
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.3 }}
+              >
+                <p className="text-3xl mb-2">{getScoreEmoji(score)}</p>
+                <p className={`text-lg font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  {score >= 0.9 ? 'Perfect!' :
+                   score >= 0.8 ? 'Excellent!' :
+                   score >= 0.7 ? 'Good job!' :
+                   score >= 0.6 ? 'Keep practicing!' :
+                   'Try again!'}
+                </p>
+              </motion.div>
+            </motion.div>
 
-          {/* Feedback */}
-          {feedback.length > 0 && (
-            <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-200">
-              <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
-                <Icon icon="tip" size="small" className="text-yellow-600" />
-                Feedback
-              </h4>
-              <ul className="space-y-2">
-                {feedback.map((item, idx) => (
-                  <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                    <span className="text-nigeria-green mt-0.5 flex-shrink-0">•</span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Encouragement */}
-          <div className={`p-4 rounded-lg text-center ${
-            score >= 0.8 ? 'bg-green-50 text-green-800 border border-green-200' :
-            score >= 0.6 ? 'bg-yellow-50 text-yellow-800 border border-yellow-200' :
-            'bg-orange-50 text-orange-800 border border-orange-200'
-          }`}>
-            {score >= 0.8 && (
-              <div>
-                <p className="font-medium">🎉 Excellent work!</p>
-                <p className="text-sm mt-1">Your pronunciation is very good! Native speakers would understand you perfectly.</p>
-              </div>
+            {/* Feedback */}
+            {feedback.length > 0 && (
+              <motion.div
+                className={`p-6 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-lg`}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+              >
+                <h4 className="font-bold text-lg mb-4 flex items-center gap-2">
+                  <Icon icon="tip" size="small" className="text-yellow-500" />
+                  Pronunciation Tips
+                </h4>
+                <ul className="space-y-3">
+                  {feedback.map((item, idx) => (
+                    <motion.li
+                      key={idx}
+                      className={`flex items-start gap-3 p-3 rounded-lg ${
+                        isDark ? 'bg-gray-700' : 'bg-gray-100'
+                      }`}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.5 + idx * 0.1 }}
+                    >
+                      <span className="text-emerald-500 mt-0.5 flex-shrink-0">•</span>
+                      <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        {item}
+                      </span>
+                    </motion.li>
+                  ))}
+                </ul>
+              </motion.div>
             )}
-            {score >= 0.6 && score < 0.8 && (
-              <div>
-                <p className="font-medium">👏 Good effort!</p>
-                <p className="text-sm mt-1">You're doing well! Keep practicing to improve your accuracy.</p>
-              </div>
-            )}
-            {score < 0.6 && (
-              <div>
-                <p className="font-medium">💪 Keep practicing!</p>
-                <p className="text-sm mt-1">Don't give up! Pronunciation takes time. Try listening to the example again.</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

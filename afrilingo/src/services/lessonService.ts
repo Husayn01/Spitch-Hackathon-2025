@@ -36,13 +36,38 @@ export interface Exercise {
   points: number;
 }
 
+// Updated to match actual database schema
 export interface UserProgress {
+  id?: string;
   user_id: string;
   lesson_id: string;
   completed: boolean;
   score: number;
+  xp_earned: number;
+  cowries_earned: number;
   completed_at?: string;
-  time_spent?: number;
+  started_at?: string;
+}
+
+export interface ExerciseAttempt {
+  id?: string;
+  user_id: string;
+  exercise_id: string;
+  response: any;
+  is_correct: boolean;
+  pronunciation_score?: number;
+  created_at?: string;
+}
+
+export interface Vocabulary {
+  id: string;
+  lesson_id: string;
+  word: string;
+  translation: string;
+  pronunciation?: string;
+  audio_url?: string;
+  display_order: number;
+  created_at: string;
 }
 
 class LessonService {
@@ -116,6 +141,7 @@ class LessonService {
         .single();
 
       if (lessonError || !lessonData) {
+        console.error('Lesson fetch error:', lessonError);
         return { lesson: null, exercises: [] };
       }
 
@@ -125,6 +151,10 @@ class LessonService {
         .select('*')
         .eq('lesson_id', lessonId)
         .order('exercise_order');
+
+      if (exercisesError) {
+        console.error('Exercises fetch error:', exercisesError);
+      }
 
       return {
         lesson: lessonData,
@@ -169,39 +199,50 @@ class LessonService {
 
       const lessonIds = lessons?.map(l => l.id) || [];
 
-      // Get user's completed lessons
-      const { data: progress } = await supabase
-        .from('user_lessons')
+      if (lessonIds.length === 0) {
+        return {
+          completedLessons: 0,
+          totalLessons: 0,
+          averageScore: 0
+        };
+      }
+
+      // Get user's completed lessons from user_progress table (NOT user_lessons)
+      const { data: progress, error: progressError } = await supabase
+        .from('user_progress')  // FIXED: Changed from user_lessons
         .select('*')
         .eq('user_id', userId)
         .in('lesson_id', lessonIds)
         .eq('completed', true);
 
+      if (progressError) {
+        console.error('Progress fetch error:', progressError);
+      }
+
       const completedLessons = progress?.length || 0;
       const totalLessons = lessons?.length || 0;
-      const averageScore = progress?.reduce((acc: number, p: any) => acc + p.score, 0) / (completedLessons || 1);
+      const averageScore = completedLessons > 0 
+        ? progress!.reduce((acc: number, p: any) => acc + (p.score || 0), 0) / completedLessons 
+        : 0;
 
       // Find next lesson
       const completedIds = progress?.map(p => p.lesson_id) || [];
-      let nextLessonQuery = supabase
+      
+      // Get all lessons ordered by lesson_order
+      const { data: allLessons } = await supabase
         .from('lessons')
         .select('*')
         .eq('language_id', langData.id)
-        .order('lesson_order')
-        .limit(1);
+        .order('lesson_order');
 
-      // Only add the NOT IN filter if there are completed IDs
-      if (completedIds.length > 0) {
-        nextLessonQuery = nextLessonQuery.not('id', 'in', `(${completedIds.join(',')})`);
-      }
-
-      const { data: nextLessonData } = await nextLessonQuery.single();
+      // Find the first lesson that hasn't been completed
+      const nextLesson = allLessons?.find(lesson => !completedIds.includes(lesson.id));
 
       return {
         completedLessons,
         totalLessons,
         averageScore: Math.round(averageScore),
-        nextLesson: nextLessonData || undefined
+        nextLesson: nextLesson || undefined
       };
     } catch (error) {
       console.error('Get user progress error:', error);
@@ -221,7 +262,7 @@ class LessonService {
     exerciseId: string,
     response: any,
     isCorrect: boolean,
-    score?: number
+    pronunciationScore?: number
   ): Promise<boolean> {
     try {
       const { error } = await supabase
@@ -231,7 +272,7 @@ class LessonService {
           exercise_id: exerciseId,
           response,
           is_correct: isCorrect,
-          pronunciation_score: score
+          pronunciation_score: pronunciationScore
         });
 
       if (error) {
@@ -247,24 +288,86 @@ class LessonService {
   }
 
   /**
+   * Start a lesson (record start time)
+   */
+  async startLesson(userId: string, lessonId: string): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('user_progress')
+        .insert({
+          user_id: userId,
+          lesson_id: lessonId,
+          completed: false,
+          score: 0,
+          xp_earned: 0,
+          cowries_earned: 0,
+          started_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) {
+        // If error is duplicate key, update the started_at time
+        if (error.code === '23505') {
+          const { error: updateError } = await supabase
+            .from('user_progress')
+            .update({ started_at: new Date().toISOString() })
+            .eq('user_id', userId)
+            .eq('lesson_id', lessonId);
+          
+          return !updateError;
+        }
+        console.error('Error starting lesson:', error);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Start lesson error:', error);
+      return false;
+    }
+  }
+
+  /**
    * Complete a lesson
    */
   async completeLesson(
     userId: string,
     lessonId: string,
     score: number,
-    timeSpent: number
+    timeSpent?: number  // Optional, as we're tracking started_at instead
   ): Promise<boolean> {
     try {
+      // Get lesson details for rewards
+      const { data: lesson } = await supabase
+        .from('lessons')
+        .select('xp_reward, cowrie_reward')
+        .eq('id', lessonId)
+        .single();
+
+      if (!lesson) {
+        console.error('Lesson not found');
+        return false;
+      }
+
+      // Calculate actual rewards based on score
+      const scorePercentage = score / 100;
+      const earnedXP = Math.round(lesson.xp_reward * scorePercentage);
+      const earnedCowries = Math.round(lesson.cowrie_reward * scorePercentage);
+
+      // Update user_progress table (NOT user_lessons)
       const { error } = await supabase
-        .from('user_lessons')
+        .from('user_progress')  // FIXED: Changed from user_lessons
         .upsert({
           user_id: userId,
           lesson_id: lessonId,
           completed: true,
           score,
-          completed_at: new Date().toISOString(),
-          time_spent: timeSpent
+          xp_earned: earnedXP,
+          cowries_earned: earnedCowries,
+          completed_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id,lesson_id'
         });
 
       if (error) {
@@ -272,8 +375,8 @@ class LessonService {
         return false;
       }
 
-      // Update user stats
-      await this.updateUserStats(userId, lessonId);
+      // Update user profile stats
+      await this.updateUserStats(userId, earnedXP, earnedCowries);
 
       return true;
     } catch (error) {
@@ -285,18 +388,9 @@ class LessonService {
   /**
    * Update user statistics after lesson completion
    */
-  private async updateUserStats(userId: string, lessonId: string) {
+  private async updateUserStats(userId: string, xpEarned: number, cowriesEarned: number): Promise<void> {
     try {
-      // Get lesson details
-      const { data: lesson } = await supabase
-        .from('lessons')
-        .select('xp_reward, cowrie_reward')
-        .eq('id', lessonId)
-        .single();
-
-      if (!lesson) return;
-
-      // Update user profile
+      // Get current user stats
       const { data: profile } = await supabase
         .from('profiles')
         .select('total_xp, cowrie_shells')
@@ -307,8 +401,8 @@ class LessonService {
         await supabase
           .from('profiles')
           .update({
-            total_xp: (profile.total_xp || 0) + lesson.xp_reward,
-            cowrie_shells: (profile.cowrie_shells || 0) + lesson.cowrie_reward
+            total_xp: (profile.total_xp || 0) + xpEarned,
+            cowrie_shells: (profile.cowrie_shells || 0) + cowriesEarned
           })
           .eq('id', userId);
       }
@@ -320,12 +414,7 @@ class LessonService {
   /**
    * Get vocabulary for a lesson
    */
-  async getLessonVocabulary(lessonId: string): Promise<Array<{
-    word: string;
-    translation: string;
-    pronunciation?: string;
-    audio_url?: string;
-  }>> {
+  async getLessonVocabulary(lessonId: string): Promise<Vocabulary[]> {
     try {
       const { data, error } = await supabase
         .from('vocabulary')
@@ -342,6 +431,98 @@ class LessonService {
     } catch (error) {
       console.error('Get vocabulary error:', error);
       return [];
+    }
+  }
+
+  /**
+   * Get user's overall statistics
+   */
+  async getUserStats(userId: string): Promise<{
+    totalXP: number;
+    totalCowries: number;
+    lessonsCompleted: number;
+    currentStreak: number;
+    languages: Array<{
+      language: string;
+      progress: number;
+      lessonsCompleted: number;
+    }>;
+  }> {
+    try {
+      // Get profile data
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('total_xp, cowrie_shells, current_streak')
+        .eq('id', userId)
+        .single();
+
+      // Get all user progress
+      const { data: userProgress } = await supabase
+        .from('user_progress')
+        .select(`
+          *,
+          lessons!inner(
+            language_id,
+            languages!inner(
+              code,
+              name
+            )
+          )
+        `)
+        .eq('user_id', userId)
+        .eq('completed', true);
+
+      const languageStats = new Map<string, { completed: number; total: number }>();
+
+      // Get total lessons per language for progress calculation
+      const { data: allLanguages } = await supabase
+        .from('languages')
+        .select(`
+          code,
+          name,
+          lessons(id)
+        `);
+
+      // Initialize language stats
+      allLanguages?.forEach(lang => {
+        languageStats.set(lang.code, {
+          completed: 0,
+          total: lang.lessons?.length || 0
+        });
+      });
+
+      // Count completed lessons per language
+      userProgress?.forEach(progress => {
+        const langCode = progress.lessons.languages.code;
+        const stats = languageStats.get(langCode);
+        if (stats) {
+          stats.completed++;
+        }
+      });
+
+      // Convert to array format
+      const languages = Array.from(languageStats.entries()).map(([code, stats]) => ({
+        language: code,
+        progress: stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0,
+        lessonsCompleted: stats.completed
+      }));
+
+      return {
+        totalXP: profile?.total_xp || 0,
+        totalCowries: profile?.cowrie_shells || 0,
+        lessonsCompleted: userProgress?.length || 0,
+        currentStreak: profile?.current_streak || 0,
+        languages
+      };
+    } catch (error) {
+      console.error('Get user stats error:', error);
+      return {
+        totalXP: 0,
+        totalCowries: 0,
+        lessonsCompleted: 0,
+        currentStreak: 0,
+        languages: []
+      };
     }
   }
 }
