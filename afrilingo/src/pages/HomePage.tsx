@@ -9,7 +9,7 @@ import {
 const ThemeContext = React.createContext({ isDark: false, toggleTheme: () => {} });
 
 const HomePage = () => {
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('hero');
   const [scrollY, setScrollY] = useState(0);
