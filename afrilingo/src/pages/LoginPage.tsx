@@ -20,7 +20,7 @@ const LoginPage: React.FC = () => {
     try {
       if (isSignUp) {
         await signUp(email, password);
-        showToast.success('Account created! Please check your email to verify.');
+        showToast.success('Account created! You can now login.');
       } else {
         await signIn(email, password);
         showToast.success('Welcome back!');
